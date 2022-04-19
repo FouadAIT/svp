@@ -92,6 +92,7 @@ param_default = {int: 0, float: 0., str: ''}
 
 PTYPE_DIR = 'dir'
 PTYPE_FILE = 'file'
+PTYPE_BUTTON = 'button'
 
 PARAM_SEP = '.'
 PATH_SEP = '/'
@@ -226,6 +227,8 @@ def param_is_active(param_defs, name, param_value):
     entry = param_defs._param_get(param_defs, name, param_value)
     if entry is not None:
         return param_get_active(param_defs, entry, param_value)
+    elif entry is None and 'rtp_config' in name:
+        return True
 
 def param_update_ref_values(param_defs, name, value, param_value):
     index_count = index_start = None

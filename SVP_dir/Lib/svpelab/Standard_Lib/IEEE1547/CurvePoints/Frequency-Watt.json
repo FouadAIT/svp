@@ -1,0 +1,6 @@
+{
+    "name": "Frequency-Watt",
+    "measured_values": ["F", "P"],
+    "x_values": ["F"],
+    "y_values": {"P": "FW"}
+}

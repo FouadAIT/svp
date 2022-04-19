@@ -35,6 +35,8 @@ import xml.etree.ElementTree as ET
 import result as rslt
 import script
 
+import RealTimePlotting as RTP
+
 extended_path_list = []
 
 class SVPError(Exception):
@@ -149,8 +151,10 @@ class MultiProcess(multiprocessing.Process):
     pass
 
 # cmd_line_target_dirs = [SUITES_DIR, TESTS_DIR, SCRIPTS_DIR]
+# modification for UML purposes
 
-def process_run(filename, env, config, params, lib_path, conn):
+
+def process_run(filename, env, config, params, lib_path, conn, run_conn):
     name = script_path = None
     try:
         sys.stdout = sys.stderr = open(os.path.join(trace_dir(), 'sunssvp_script.log'), "w")
@@ -162,7 +166,7 @@ def process_run(filename, env, config, params, lib_path, conn):
         try:
             m = importlib.import_module(name)
             info = m.script_info()
-            test_script = RunScript(env=env, info=info, config=config, config_file=None, params=params, conn=conn)
+            test_script = RunScript(env=env, info=info, config=config, config_file=None, params=params, conn=conn, run_conn=run_conn)
             m.run(test_script)
         except Exception as e:
             raise e
@@ -173,6 +177,13 @@ def process_run(filename, env, config, params, lib_path, conn):
             del sys.path[0]
         if lib_path is not None and sys.path[0] == lib_path:
             del sys.path[0]
+
+
+def real_time_plotting(filename, env, config, params, lib_path, rtp_conn):
+    try:
+        RTP.RealTimePlottingDialog(filename, env, config, params, lib_path, rtp_conn)
+    except Exception as e:
+        raise e
 
 
 class LogEntry(object):
@@ -434,10 +445,11 @@ RUN_MSG_CMD_RESUME = 'resume'
 RUN_MSG_CMD_STOP = 'stop'
 
 class RunScript(script.Script):
-    def __init__(self, env=None, info=None, config=None, config_file=None, params=None, conn=None):
+    def __init__(self, env=None, info=None, config=None, config_file=None, params=None, conn=None, run_conn=None):
         script.Script.__init__(self, env=env, info=info, config=config, config_file=config_file, params=params)
 
         self._conn = conn
+        self.run_conn = run_conn
         self._files_dir = env.get('files_dir', '')
         self._results_dir = env.get('results_dir', '')
         self._result_dir = env.get('result_dir', '')
@@ -534,7 +546,7 @@ class RunScript(script.Script):
         current_time = time.time()
         wake_time = current_time + seconds
         while wake_time > current_time:
-            sleep_time = .5
+            sleep_time = .01
             # service timers
             timers = list(self.timers)
             for t in timers:
@@ -619,9 +631,12 @@ class RunContext(object):
 
         self.svp_file = svp_file
         self.process = None
+        self.subprocess = []
         self.log_file = None
         self.test_conn = None
         self.app_conn = None
+        self.rtp_conn = []
+        self.run_conn = []
         self.suites = []
         self.suite = None
         self.suite_params = None
@@ -629,6 +644,8 @@ class RunContext(object):
         self.result_dir = ''
         self.active_result = None
         self.status = None
+        self.rtp_enable = False
+        self.number_of_rtp_process = 0
 
     def is_alive(self):
         if self.process is not None:
@@ -665,6 +682,7 @@ class RunContext(object):
 
         # start
         self.run_next()
+
 
     def run_next(self):
         while self.suite:
@@ -785,9 +803,20 @@ class RunContext(object):
         '''
 
     def start(self, filename, env=None, config=None, params=None):
+        if params is None:
+            rtp_enable_list = [value for key, value in config.params.items() if 'rtp_enable' in key]
+        else:
+            rtp_enable_list = [value for key, value in params.items() if 'rtp_enable' in key]
+
+        if rtp_enable_list:
+            self.rtp_enable = rtp_enable_list[0] == 'Enabled'
+        else:
+            self.rtp_enable = False
+
         if self.process is not None:
             raise SVPError('Execution context process already running')
-
+        if len(self.subprocess) > self.number_of_rtp_process:
+            raise SVPError('Real-time plotting process already running')
         try:
             if self.test_conn is not None:
                 self.test_conn.close()
@@ -795,34 +824,70 @@ class RunContext(object):
             if self.app_conn is not None:
                 self.app_conn.close()
                 self.app_conn = None
+            #Real-time plotting connection
+            if self.rtp_conn or self.run_conn:
+                if self.rtp_conn[self.number_of_rtp_process] is not None:
+                    self.rtp_conn[self.number_of_rtp_process].close()
+                    self.rtp_conn[self.number_of_rtp_process] = None
+                if self.run_conn[self.number_of_rtp_process]  is not None:
+                    self.run_conn[self.number_of_rtp_process].close()
+                    self.run_conn[self.number_of_rtp_process] = None
         except Exception as e:
             pass
 
         try:
             self.test_conn, self.app_conn = multiprocessing.Pipe()
+            if self.rtp_enable:
+                rtp_conn, run_conn = multiprocessing.Pipe()
+                self.rtp_conn.append(rtp_conn)
+                self.run_conn.append(run_conn)
         except Exception as e:
-            print ('Error creating execution context pipe: {}'.format(e))
+            print('Error creating execution context pipe: {}'.format(e))
 
         try:
             if config is not None:
                 script_config = copy.deepcopy(config)
             else:
                 script_config = None
-            self.process = MultiProcess(name='svp_process', target=process_run, args=(filename, env, script_config,
-                                                                                      params, self.lib_path,
-                                                                                      self.test_conn))
-            self.process.start()
+
+            if self.rtp_enable is True:
+                self.process = MultiProcess(name='svp_process', target=process_run,
+                                            args=(filename, env, script_config, params, self.lib_path, self.test_conn,
+                                                  self.run_conn[self.number_of_rtp_process]))
+                self.process.start()
+
+                if self.suite:
+                    if 'rtp_config' in self.suite.params:
+                        params['rtp_config'] = self.suite.params['rtp_config']
+                    else:
+                        raise SVPError('Suite {} is missing real-time plotting configuration'.format(self.suite.name))
+
+                subprocess = MultiProcess(name='rtp_process', target=real_time_plotting,
+                                          args=[filename, env, script_config, params, self.lib_path,
+                                                self.rtp_conn[self.number_of_rtp_process]])
+                self.subprocess.append(subprocess)
+                self.subprocess[self.number_of_rtp_process].start()
+
+                self.number_of_rtp_process += 1
+            else:
+                self.process = MultiProcess(name='svp_process', target=process_run,
+                                        args=(filename, env, script_config, params, self.lib_path, self.test_conn,
+                                          self.run_conn))
+                self.process.start()
         except Exception as e:
             # raise
-            print ('Error creating execution context process: {}'.format(e))
+            print('Error creating execution context process: {}'.format(e))
             try:
                 if self.process:
                     self.process.terminate()
                     # self.process.join(timeout=0)
+                if self.subprocess:
+                    self.terminate_rtp()
             except Exception as e:
                 pass
 
             self.process = None
+            self.subprocess = []
 
     def terminate(self):
         if self.process and self.process.is_alive():
@@ -830,7 +895,7 @@ class RunContext(object):
             try:
                 self.process.terminate()
             except Exception as e:
-                print ('Process termination error: {}'.format(e))
+                print('Process termination error: {}'.format(e))
         self.status = script.RESULT_FAIL
         self.clean_up()
 
@@ -851,6 +916,7 @@ class RunContext(object):
             if self.app_conn is not None:
                 self.app_conn.close()
                 self.app_conn = None
+
         except Exception as e:
             pass
 
@@ -865,6 +931,36 @@ class RunContext(object):
                 self.update_result(status=script.RESULT_FAIL)
 
         self.process = None
+
+    def terminate_rtp(self):
+        for subprocess in self.subprocess:
+            if subprocess and subprocess.is_alive():
+                # ### send stop signal to process, stop forcefully for now
+                try:
+                    subprocess.terminate()
+                except Exception as e:
+                    print('SubProcess termination error: {}'.format(e))
+        self.clean_up_rtp()
+
+    def clean_up_rtp(self):
+        try:
+            for i in range(0, self.number_of_rtp_process):
+                if self.run_conn[i] is not None:
+                    self.run_conn[i].close()
+                    self.run_conn[i] = None
+
+                if self.rtp_conn[i] is not None:
+                    self.rtp_conn[i].close()
+                    self.rtp_conn[i] = None
+
+                if self.subprocess[i]:
+                    self.subprocess[i].join(timeout=0)
+
+            self.subprocess = []
+
+        except Exception as e:
+            pass
+
 
     def periodic(self):
         if self.app_conn:
@@ -926,7 +1022,10 @@ class RunContext(object):
 
                     count += 1
                 else:
-                    if self.process and not self.process.is_alive():
+                    if self.process and not self.process.is_alive() and self.rtp_enable:
+                        self.clean_up()
+                        self.run_conn[self.number_of_rtp_process - 1].send({'name': 'end loop', 'data': None})
+                    elif self.process and not self.process.is_alive():
                         self.clean_up()
                     break
 

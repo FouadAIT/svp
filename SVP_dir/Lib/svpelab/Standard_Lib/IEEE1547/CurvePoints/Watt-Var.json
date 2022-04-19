@@ -1,0 +1,6 @@
+{
+    "name": "Watt-Var",
+    "measured_values": ["P", "Q"],
+    "x_values": ["P"],
+    "y_values": {"Q": "WV"}
+}

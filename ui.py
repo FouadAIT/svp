@@ -40,7 +40,9 @@ import glob
 import multiprocessing
 import wx
 import wx.adv
+from wx.lib import plot as wxplot
 import xlsxwriter
+import json
 
 import numpy
 import wxmplot
@@ -51,6 +53,8 @@ import app as svp
 import result as rslt
 import script
 import svptreectrl as treectrl
+
+import RealTimePlotting as RTP
 
 '''
 import sunspec.core.util as util
@@ -67,7 +71,7 @@ wx_app = None
 VERSION = '2.0.0'
 
 APP_NAME = 'SVP'
-APP_LABEL = 'System Validation Platform'
+APP_LABEL = 'System Validation Platform with Real-time plotting feature'
 APP_PROG_NAME = 'sunssvp'
 APP_STDOUT = APP_PROG_NAME + '.log'
 
@@ -91,11 +95,12 @@ OP_ABOUT = 17
 OP_COPY = 18
 OP_OPEN = 19
 OP_RESULT = 20
+#OP_RTP_PREF = 21
 OP_PKG = 30
 
 
 OP_ID_MIN = 1
-OP_ID_MAX = 20
+OP_ID_MAX = 21
 
 TEXT_WRAP = 250
 
@@ -674,14 +679,31 @@ class EditSuiteDialog(wx.Dialog):
                 text.SetToolTip(wx.ToolTip(param.desc))
             params_panel.panel_sizer.Add(text, pos=(row, 0), border=pad, flag=wx.LEFT | wx.ALIGN_CENTER_VERTICAL)
             if param.values:
-                choices = [str(v) for v in param.values]
-                entry = wx.Choice(params_panel, -1, name=param.qname, choices=choices)
-                entry_index = entry.FindString(str(current_value))
-                if entry_index != wx.NOT_FOUND:
-                    entry.SetSelection(entry_index)
-                entry.Bind(wx.EVT_CHOICE, self.OnChange)
-                edit_param.param_value = edit_param.param_choice_get
-                params_panel.panel_sizer.Add(entry, pos=(row, 1), border=0, flag=wx.LEFT)
+                if param.ptype == script.PTYPE_BUTTON and not any('.ste' in l for l in self.suite.members):
+                    entry = wx.TextCtrl(params_panel, -1, value=str(current_value), size=(0, 0))
+                    entry.Disable()
+                    params_panel.panel_sizer.Add(entry, pos=(row, 2), border=0, flag=wx.LEFT)
+                    button = wx.Button(params_panel, -1, label=label, name=str(current_value))
+                    button.Bind(wx.EVT_BUTTON, self.OnBtn)
+                    params_panel.panel_sizer.Add(button, pos=(row, 1), border=0, flag=wx.LEFT | wx.EXPAND)
+                elif param.ptype == script.PTYPE_BUTTON and any('.ste' in l for l in self.suite.members):
+                    choices = ['Need to configure the lowest level of Suite']
+                    entry = wx.Choice(params_panel, -1, name=param.qname, choices=choices)
+                    entry_index = entry.FindString(str(choices[0]))
+                    if entry_index != wx.NOT_FOUND:
+                        entry.SetSelection(entry_index)
+                    entry.Bind(wx.EVT_CHOICE, self.OnChange)
+                    edit_param.param_value = edit_param.param_choice_get
+                    params_panel.panel_sizer.Add(entry, pos=(row, 1), border=0, flag=wx.LEFT)
+                else:
+                    choices = [str(v) for v in param.values]
+                    entry = wx.Choice(params_panel, -1, name=param.qname, choices=choices)
+                    entry_index = entry.FindString(str(current_value))
+                    if entry_index != wx.NOT_FOUND:
+                        entry.SetSelection(entry_index)
+                    entry.Bind(wx.EVT_CHOICE, self.OnChange)
+                    edit_param.param_value = edit_param.param_choice_get
+                    params_panel.panel_sizer.Add(entry, pos=(row, 1), border=0, flag=wx.LEFT)
             else:
                 if param.ptype == script.PTYPE_DIR:
                     entry = wx.TextCtrl(params_panel, -1, str(current_value), size=(350, -1))
@@ -731,6 +753,20 @@ class EditSuiteDialog(wx.Dialog):
                                                           param_value=self.param_value)
         return value
 
+    def OnBtn(self, evt):
+        button = evt.GetEventObject()
+        getattr(self, button.GetName())()
+
+
+    def OnRtp(self):
+        if 'rtp_config' in self.suite.params.keys():
+            dialog = RtpPrefDialog(self, name='rtp_config',
+                                   config=self.suite.params['rtp_config'], entry_type='Suite')
+        else:
+            dialog = RtpPrefDialog(self, name='rtp_config', config='Default', entry_type='Suite')
+        dialog.CenterOnParent()
+        dialog.ShowModal()
+
     def update_suite_members(self):
         self.suite.members = []
         tree = self.members_tree
@@ -751,6 +787,8 @@ class EditSuiteDialog(wx.Dialog):
                     for key, v in list(p.indexed_entries.items()):
                         value[key] = p.param_value(index=key)
                     self.params[name] = value
+                elif 'rtp_config' in name:
+                    self.params[name] = p.param.default
                 else:
                     self.params[name] = p.param_value()
         self.globals = self.suite.globals
@@ -809,6 +847,11 @@ class EditSuiteDialog(wx.Dialog):
                 self.members.append(name)
             item = tree.GetNextSibling(item)
         # update params
+        if 'rtp_config' not in self.edit_params and 'rtp_config' in self.suite.params:
+            edit_param = EditParam(script.ScriptParamDef(name='rtp_config', qname='rtp_config',
+                                                         label=' ', default=self.suite.params['rtp_config'],
+                                                         values=[self.suite.params['rtp_config']]))
+            self.edit_params[edit_param.param.qname] = edit_param
         self.update_params()
         self.result = True
         self.Destroy()
@@ -1246,14 +1289,22 @@ class EditTestDialog(wx.Dialog):
                 text.SetToolTip(wx.ToolTip(param.desc))
             params_panel.panel_sizer.Add(text, pos=(row, 0), border=pad, flag=wx.LEFT | wx.ALIGN_CENTER_VERTICAL)
             if param.values:
-                choices = [str(v) for v in param.values]
-                entry = wx.Choice(params_panel, -1, name=param.qname, choices=choices)
-                entry_index = entry.FindString(str(current_value))
-                if entry_index != wx.NOT_FOUND:
-                    entry.SetSelection(entry_index)
-                entry.Bind(wx.EVT_CHOICE, self.OnChange)
-                edit_param.param_value = edit_param.param_choice_get
-                params_panel.panel_sizer.Add(entry, pos=(row, 1), border=0, flag=wx.LEFT)
+                if param.ptype == script.PTYPE_BUTTON:
+                    entry = wx.TextCtrl(params_panel, -1, value=str(current_value), size=(0, 0))
+                    entry.Disable()
+                    params_panel.panel_sizer.Add(entry, pos=(row, 2), border=0, flag=wx.LEFT)
+                    button = wx.Button(params_panel, -1, label=label, name=str(current_value))
+                    button.Bind(wx.EVT_BUTTON, self.OnBtn)
+                    params_panel.panel_sizer.Add(button, pos=(row, 1), border=0, flag=wx.LEFT | wx.EXPAND)
+                else:
+                    choices = [str(v) for v in param.values]
+                    entry = wx.Choice(params_panel, -1, name=param.qname, choices=choices)
+                    entry_index = entry.FindString(str(current_value))
+                    if entry_index != wx.NOT_FOUND:
+                        entry.SetSelection(entry_index)
+                    entry.Bind(wx.EVT_CHOICE, self.OnChange)
+                    edit_param.param_value = edit_param.param_choice_get
+                    params_panel.panel_sizer.Add(entry, pos=(row, 1), border=0, flag=wx.LEFT)
             else:
                 if param.ptype == script.PTYPE_DIR:
                     entry = wx.TextCtrl(params_panel, -1, str(current_value), size=(350, -1))
@@ -1297,6 +1348,21 @@ class EditTestDialog(wx.Dialog):
             return self.test_script.param_value(name, param_defs=self.test_script.param_defs,
                                                 param_value=self.param_value)
 
+    def OnBtn(self, evt):
+        button = evt.GetEventObject()
+        getattr(self, button.GetName())()
+
+
+    def OnRtp(self):
+        if 'rtp_config' in self.entity.test_config.params.keys():
+            dialog = RtpPrefDialog(self, name='rtp_config', config=self.entity.test_config.params['rtp_config'],
+                                   entry_type='Test')
+        else:
+            dialog = RtpPrefDialog(self, name='rtp_config', config='Default', entry_type='Test')
+        dialog.CenterOnParent()
+        dialog.ShowModal()
+
+
     def OnChange(self, evt):
         ctrl = evt.GetEventObject()
         p = self.edit_params.get(ctrl.GetName())
@@ -1339,6 +1405,8 @@ class EditTestDialog(wx.Dialog):
                 pass
 
     def OnOk(self, evt):
+        if 'rtp_config' not in self.params.keys() and 'rtp_config' in self.test_script.config.params.keys():
+            self.params['rtp_config'] = self.test_script.config.params['rtp_config']
         self.update_params()
         self.result = True
         self.Destroy()
@@ -2476,7 +2544,7 @@ class WorkingDirectory(Directory):
                         print('Imported svp ext: {} {} {}\n{}'.format(f, m_name, i_name, (self.svp_ext)))
                     except Exception as e:
                         print(f"Error importing {f}")
-                        print(f"Error message : {e}")
+                        print(f"Error message: {e}")
         files = glob.glob(os.path.join(d, '*'))
         for f in files:
             if os.path.isdir(f):
@@ -4090,6 +4158,1632 @@ class AppWx(app.App):
         app.App.state_update(self)
 '''
 
+class RtpPrefPanel(wx.Panel):
+    def __init__(self, parent, entity, title=None):
+        wx.Panel.__init__(self, parent)
+        self.parent = parent
+        self.entity = entity
+
+
+class RtppMainTab(wx.Panel):
+    def __init__(self, parent, config):
+        """
+            Initialize the Real-time Plotting General Setting Tab
+            :param parent: wx.Notebook, which is the parent of this tab panel
+                configFile: ConfigObj that is used to initialise, load and save the preference window parameters
+
+        """
+        wx.Panel.__init__(self, parent)
+        self.parent = parent
+
+        self.name = 'MainTab'
+
+        self.config = config
+
+        self.main_sizer = wx.BoxSizer(wx.HORIZONTAL) #the Overall sizer
+
+        self.control_sizer = wx.BoxSizer(wx.VERTICAL) #The sizer used for the controls on the left
+
+        self.display_control_buttons_sizer = wx.BoxSizer(wx.VERTICAL) # The Sizer used for the Graph Display
+
+        #Adding the different widgets to the control sizer
+        self.MainControlsSetup()
+
+        #Adding the control sizer to the Overall sizer
+        self.main_sizer.Add(self.control_sizer, 1, wx.ALL | wx.SHAPED)
+
+
+        #Visual vertical line separation between the controls and the Graph Display
+        self.static_line_main = wx.StaticLine(self, style=wx.LI_VERTICAL)
+        self.main_sizer.Add(self.static_line_main, 0, wx.EXPAND)
+
+
+        if self.config[self.name]['Standard tested'] == 'Custom':
+
+            #Adding the Graph display title to the Graph display sizer
+            display_title = wx.StaticText(self, label='Real-time Plotting Plot Layout')
+            self.display_control_buttons_sizer.Add(display_title, 0, wx.ALIGN_CENTER_HORIZONTAL)
+            self.display_control_buttons_sizer.Add(wx.StaticLine(self, style=wx.LI_HORIZONTAL), 0, wx.EXPAND)
+
+            #Setting and adding the Graph display to the Graph display sizer
+            self.display_sizer = self.DisplaySetUp()
+            self.display_control_buttons_sizer.Add(self.display_sizer, 2, wx.EXPAND)
+
+            #Binding the row text and column test widget with the Graph Display update function
+            self.row_text.Bind(wx.EVT_TEXT_ENTER, self.DisplayUpdate)
+            self.column_text.Bind(wx.EVT_TEXT_ENTER, self.DisplayUpdate)
+
+            #Adding the Graph Display sizer to the Overall Sizer
+            self.main_sizer.Add(self.display_control_buttons_sizer, 2, wx.EXPAND)
+
+        else:
+            library_static = wx.StaticText(self, label='The configuration is handled by the ' +
+                                           self.config[self.name]['Standard tested'] + ' library driver')
+            self.display_control_buttons_sizer.Add(library_static, 0, wx.ALIGN_CENTRE)
+            self.main_sizer.Add(self.display_control_buttons_sizer, 2, wx.EXPAND)
+
+        self.SetSizer(self.main_sizer)
+
+
+    def MainControlsSetup(self):
+        """
+            Set up the left control sizer with the good widgets
+            :param control_sizer: wx.BoxSizer(wx.Vertical), Sizer that contains the widgets of the left control of the
+            general setting tab
+
+            :returns nothing
+
+        """
+
+
+        control1 = wx.StaticText(self, label='General Parameters') #general parameters title
+        self.control_sizer.Add(control1, 0, wx.EXPAND | wx.ALL, 5)
+
+        # Initialising and adding the standard tested combobox to the control sizer
+        standard_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        standard_static = wx.StaticText(self, label='Standard tested: ')
+        self.standard_combo = wx.ComboBox(self, value=self.config[self.name]['Standard tested'],
+                                     choices=['Custom', '1547.1', 'DR_AS_NZS_4777.2'])
+        self.standard_combo.Bind(wx.EVT_COMBOBOX_CLOSEUP, self.Standard_tested_update)
+        standard_sizer.Add(standard_static, 1, wx.ALIGN_CENTER_VERTICAL)
+        standard_sizer.Add(self.standard_combo, 0, wx.ALIGN_LEFT)
+        self.control_sizer.Add(standard_sizer, 0, wx.ALL, 5)
+
+        if self.config[self.name]['Standard tested'] == 'Custom':
+
+            # Initialising and adding the row text widget to the control sizer
+            row_sizer = wx.BoxSizer(wx.HORIZONTAL)
+            row_static = wx.StaticText(self, label='Row: ')
+            self.row_text = wx.TextCtrl(self, value=self.config[self.name]['Row'],
+                                        style=wx.TE_PROCESS_ENTER, size=(20, -1))
+            row_sizer.Add(row_static, 1, wx.ALIGN_CENTER_VERTICAL)
+            row_sizer.Add(self.row_text, 0, wx.ALIGN_LEFT)
+            self.control_sizer.Add(row_sizer, 0, wx.ALL, 5)
+
+            # Initialising and adding the column text widget to the control sizer
+            column_sizer = wx.BoxSizer(wx.HORIZONTAL)
+            column_static = wx.StaticText(self, label='Column: ')
+            self.column_text = wx.TextCtrl(self, value=self.config[self.name]['Column'],
+                                           style=wx.TE_PROCESS_ENTER, size=(20, -1))
+            column_sizer.Add(column_static, 1, wx.ALIGN_CENTER_VERTICAL)
+            column_sizer.Add(self.column_text, 0, wx.ALIGN_LEFT)
+            self.control_sizer.Add(column_sizer, 0, wx.ALL, 5)
+
+            #Represent the number of tab needed depending on the number of row and columns
+            self.number_of_other_tab = int(self.config[self.name]['Number of other tab'])
+
+        else:
+            self.row_text = wx.TextCtrl(self, value='0',
+                                        style=wx.TE_PROCESS_ENTER, size=(20, -1))
+            self.row_text.Hide()
+            self.column_text = wx.TextCtrl(self, value='0',
+                                           style=wx.TE_PROCESS_ENTER, size=(20, -1))
+            self.column_text.Hide()
+            self.number_of_other_tab = 0
+
+
+
+    def Standard_tested_update(self, evt):
+        self.config[self.name]['Standard tested'] = self.standard_combo.GetValue()
+
+        # Removing the old left controls of the tab
+        self.main_sizer.Hide(self.control_sizer)
+        self.main_sizer.Remove(self.control_sizer)
+        self.control_sizer = wx.BoxSizer(wx.VERTICAL)
+
+        # Removing the old display and left controls of the tab
+        self.main_sizer.Hide(self.display_control_buttons_sizer)
+        self.main_sizer.Remove(self.display_control_buttons_sizer)
+        self.display_control_buttons_sizer = wx.BoxSizer(wx.VERTICAL)
+
+        # Removing the verticale line separating the left controls and the display from the tab
+        self.main_sizer.Hide(self.static_line_main)
+        self.static_line_main.Destroy()
+
+        self.MainControlsSetup()
+
+        # Adding the control sizer to the Overall sizer
+        self.main_sizer.Add(self.control_sizer, 1, wx.ALL | wx.SHAPED)
+
+        # Visual vertical line separation between the controls and the Graph Display
+        self.static_line_main = wx.StaticLine(self, style=wx.LI_VERTICAL)
+        self.main_sizer.Add(self.static_line_main, 0, wx.EXPAND)
+
+        if self.standard_combo.GetValue() != 'Custom':
+
+            library_static = wx.StaticText(self, label='The configuration is handled by the ' +
+                                           self.config[self.name]['Standard tested'] + ' library driver')
+            self.display_control_buttons_sizer.Add(library_static, 0, wx.ALIGN_CENTRE)
+            self.main_sizer.Add(self.display_control_buttons_sizer, 2, wx.EXPAND)
+            self.Layout()
+            self.GetParent().GetParent().RtppUpdateOtherTab()
+
+        else:
+
+            # Adding the Graph display title to the Graph display sizer
+            display_title = wx.StaticText(self, label='Real-time Plotting Plot Layout')
+            self.display_control_buttons_sizer.Add(display_title, 0, wx.ALIGN_CENTER_HORIZONTAL)
+            self.display_control_buttons_sizer.Add(wx.StaticLine(self, style=wx.LI_HORIZONTAL), 0, wx.EXPAND)
+
+            # Setting and adding the Graph display to the Graph display sizer
+            self.display_sizer = self.DisplaySetUp()
+            self.display_control_buttons_sizer.Add(self.display_sizer, 2, wx.EXPAND)
+
+            # Binding the row text and column test widget with the Graph Display update function
+            self.row_text.Show()
+            self.column_text.Show()
+            self.row_text.Bind(wx.EVT_TEXT_ENTER, self.DisplayUpdate)
+            self.column_text.Bind(wx.EVT_TEXT_ENTER, self.DisplayUpdate)
+
+            # Adding the Graph Display sizer to the Overall Sizer
+            self.main_sizer.Add(self.display_control_buttons_sizer, 2, wx.EXPAND)
+
+            self.DisplayUpdate(evt=None)
+
+        self.SetSizer(self.main_sizer)
+
+
+    def DisplayUpdate(self, evt):
+        """
+            Update the Graph display and Notebook when there is changes to the row or column text widgets
+
+            :returns nothing
+
+        """
+        #Set up a new Graph Display
+        new_disp_sizer = self.DisplaySetUp()
+        #Remove the old Graph Display from the Graph Display sizer
+        self.display_control_buttons_sizer.Hide(self.display_sizer)
+        self.display_control_buttons_sizer.Remove(self.display_sizer)
+        #Insert the new Graph Display into the Graph Display sizer
+        self.display_control_buttons_sizer.Insert(2, new_disp_sizer, 2, wx.EXPAND)
+        #Reinitialise the Panel's Graph Display attribute
+        self.display_sizer = new_disp_sizer
+        #Readjust the panel
+        self.Layout()
+        #Update the Notebook by adding the corresponding tabs and their positions
+        self.number_of_other_tab = int(self.column_text.GetValue()) * int(self.row_text.GetValue())
+        self.config[self.name]['Number of other tab'] = self.number_of_other_tab
+        self.GetParent().GetParent().RtppUpdateOtherTab()
+        self.Update_Graph_titles()
+
+
+    def DisplaySetUp(self):
+        """
+            Set up the Graph Display, depending on the number of rows and column, also the title of each tab
+
+            :returns sixer: wx.BoxSizer(wx.VERTICAL) - contain the Graph Display of the General setting tab
+
+        """
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        rows = int(self.row_text.GetValue())
+        columns = int(self.column_text.GetValue())
+        self.config[self.name]['Row'] = str(rows)
+        self.config[self.name]['Column'] = str(columns)
+        row_sizers = []
+        column_sizers = []
+        self.graph_type = [[]]
+        for row in range(0, rows):
+            row_sizers.append(wx.BoxSizer(wx.HORIZONTAL))
+
+            if row > 0:
+                sizer.Add(wx.StaticLine(self, style=wx.LI_HORIZONTAL), 0, wx.EXPAND)
+                self.graph_type.append([])
+
+            for column in range(0, columns):
+                column_sizers.append(wx.BoxSizer(wx.VERTICAL))
+                self.graph_type[row].append(wx.StaticText(self))
+                column_sizers[column + (columns*row)].Add(self.graph_type[row][column],
+                                                          1, wx.ALIGN_CENTER)
+                if column > 0:
+                    row_sizers[row].Add(wx.StaticLine(self, style=wx.LI_VERTICAL), 0, wx.EXPAND)
+                row_sizers[row].Add(column_sizers[column + (columns*row)], 1, wx.ALIGN_CENTER)
+
+            sizer.Add(row_sizers[row], 1, wx.EXPAND)
+        return sizer
+
+    def Update_Graph_titles(self):
+        """
+            Update the different plot titles inside the Graph Display
+
+            :returns nothing
+
+        """
+        rows = int(self.row_text.GetValue())
+        columns = int(self.column_text.GetValue())
+        for row in range(0, rows):
+            for column in range(0, columns):
+                self.graph_type[row][column]\
+                    .SetLabel(self.GetParent().GetPage(row*(columns) + column + 1).title_text.GetValue())
+
+
+class RtppOtherTab(wx.Panel):
+    def __init__(self, parent, config, name):
+        """
+            Initialize a Real-time Plotting specific Setting Tab
+            :param parent: wx.Notebook, which is the parent of this tab panel
+            configFile: ConfigObj that is used to initialise, load and save the preference window parameters
+            name: String the represent the name of the tab on the ConfigFile dictionnary
+
+        """
+        wx.Panel.__init__(self, parent)
+        self.name = name
+        self.config = config
+        if self.name not in self.config.keys():
+            self.config[self.name] = {
+                'Plot title': 'Tab',
+                'Row': '1',
+                'Column': '1',
+                'Plot type': 'Disabled'
+            }
+        self.title = self.config[self.name]['Plot title']
+        self.row = self.config[self.name]['Row']
+        self.column = self.config[self.name]['Column']
+        self.plot_type = self.config[self.name]['Plot type']
+        self.parent = parent
+
+        self.main_sizer = wx.BoxSizer(wx.HORIZONTAL) # the Overall sizer
+
+        self.control_sizer = wx.BoxSizer(wx.VERTICAL) # the sizer used for the control on the left
+
+        # sizer for the display and the controls on the right
+        self.display_control_buttons_sizer = wx.BoxSizer(wx.VERTICAL)
+
+        #Set up of the the left controls for any plot type
+        self.MainControlsSetup()
+
+        #Adding the control sizer for the left controls
+        self.main_sizer.Add(self.control_sizer, 1, wx.EXPAND)
+
+        #Initialising the tab in a the disabled plot type state, which means not dot display and right controls
+        self.Initial_Disabled_tab_config()
+        self.Update_tab_plot_type_config(evt=None)
+
+        #Binding the plot type combobox with a function that update the tab depending on the plot type selected
+        self.plot_type_combo.Bind(wx.EVT_COMBOBOX_CLOSEUP, self.Update_tab_plot_type_config)
+
+        #Adjusting the Overall sizer to the window
+        self.SetSizer(self.main_sizer)
+
+    def MainControlsSetup(self):
+        """
+            Initialize The left control sizer for the basic Disabled plot type
+
+            :returns Nothing
+
+        """
+
+        #Add the parameters title
+        self.control_title = wx.StaticText(self, label=self.title + ' Parameters :')
+        self.control_sizer.Add(self.control_title, 0, wx.EXPAND | wx.ALL, 5)
+
+        # Initialising and adding the Plot title text widget to the control sizer
+        title_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        title_static = wx.StaticText(self, label='Plot title: ')
+        self.title_text = wx.TextCtrl(self, value=self.config[self.name]['Plot title'], style=wx.TE_PROCESS_ENTER)
+        self.title_text.Bind(wx.EVT_TEXT_ENTER, self.title_update_enter)
+        title_sizer.Add(title_static, 1, wx.ALIGN_CENTER_VERTICAL)
+        title_sizer.Add(self.title_text, 0, wx.ALIGN_LEFT)
+        self.control_sizer.Add(title_sizer, 0, wx.ALL, 5)
+
+        # Initialising and adding the row static text widget to the control sizer
+        row_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        row_static = wx.StaticText(self, label='Row: ')
+        self.row_text = wx.StaticText(self, label=self.config[self.name]['Row'])
+        row_sizer.Add(row_static, 0)
+        row_sizer.Add(self.row_text,0)
+        self.control_sizer.Add(row_sizer, 0, wx.ALL, 5)
+
+        # Initialising and adding the column static text widget to the control sizer
+        column_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        column_static = wx.StaticText(self, label='Column: ')
+        self.column_text = wx.StaticText(self, label=self.config[self.name]['Column'])
+        column_sizer.Add(column_static, 0)
+        column_sizer.Add(self.column_text, 0)
+        self.control_sizer.Add(column_sizer, 0, wx.ALL, 5)
+
+        # Initialising and adding the Plot type combobox to the control sizer
+        plot_type_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        plot_type_static = wx.StaticText(self, label='Type of plot: ')
+        self.plot_type_combo = wx.ComboBox(self, value=self.config[self.name]['Plot type'],
+                                           choices=['XY', 'Time-based', 'Disabled'])
+        plot_type_sizer.Add(plot_type_static, 1, wx.ALIGN_CENTER_VERTICAL)
+        plot_type_sizer.Add(self.plot_type_combo, 0, wx.ALIGN_LEFT)
+        self.control_sizer.Add(plot_type_sizer, 0, wx.ALL, 5)
+
+    def title_update_enter(self, evt):
+        """
+            Reset the corresponding widget having the plot title as a name or label, when the plot title is changed.
+
+            :returns Nothing
+
+        """
+        self.parent.SetPageText(self.parent.FindPage(self.parent.GetCurrentPage()), self.title_text.GetValue())
+        self.parent.GetPage(0).graph_type[int(self.row) - 1][int(self.column) - 1].SetLabel(self.title_text.GetValue())
+        if self.display is not None:
+            self.display.axes.set_title(self.title_text.GetValue())
+            self.GraphResize(evt=None)
+        self.title = self.title_text.GetValue()
+        self.config[self.name]['Plot title'] = self.title_text.GetValue()
+        self.control_title.SetLabel(self.title + ' Parameters :')
+        self.Layout()
+
+    def Base_update_tab_config(self):
+
+        """
+            Funtion used in the reconfiguration of the tab. It begins the process of resetting the whole tab layout to
+             correspond to the correct plot type. Also, initialise the common widget to all Plot type
+
+            :returns Nothing
+
+        """
+        # Removing the old left controls of the tab
+        self.main_sizer.Hide(self.control_sizer)
+        self.main_sizer.Remove(self.control_sizer)
+        self.control_sizer = wx.BoxSizer(wx.VERTICAL)
+
+        #Removing the old display and left controls of the tab
+        self.main_sizer.Hide(self.display_control_buttons_sizer)
+        self.main_sizer.Remove(self.display_control_buttons_sizer)
+        self.display_control_buttons_sizer = wx.BoxSizer(wx.VERTICAL)
+
+        #Removing the verticale line separating the left controls and the display from the tab
+        self.main_sizer.Hide(self.static_line_main)
+        self.static_line_main.Destroy()
+
+        #Intialisaing the new left common controls
+        self.control_title = wx.StaticText(self, label=self.title + ' Parameters :')
+        self.control_sizer.Add(self.control_title, 0, wx.EXPAND | wx.ALL, 5)
+
+        #Initialising and adding the Plot title text widgets to the left controls sizer
+        title_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        title_sizer.Add(wx.StaticText(self, label='Plot title: '), 1, wx.ALIGN_CENTER_VERTICAL)
+        self.title_text = wx.TextCtrl(self, value=self.config[self.name]['Plot title'], style=wx.TE_PROCESS_ENTER)
+        self.title_text.Bind(wx.EVT_TEXT_ENTER, self.title_update_enter)
+        title_sizer.Add(self.title_text, 0, wx.ALIGN_LEFT)
+        self.control_sizer.Add(title_sizer, 0, wx.ALL, 5)
+
+        # Initialising and adding the row static text widgets to the left controls sizer
+        row_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        row_sizer.Add(wx.StaticText(self, label='Row: '), 0)
+        self.row_text = wx.StaticText(self, label=self.config[self.name]['Row'])
+        row_sizer.Add(self.row_text, 0)
+        self.control_sizer.Add(row_sizer, 0, wx.ALL, 5)
+
+        # Initialising and adding the column static text widgets to the left controls sizer
+        column_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        column_sizer.Add(wx.StaticText(self, label='Column: '), 0)
+        self.column_text = wx.StaticText(self, label=self.config[self.name]['Column'])
+        column_sizer.Add(self.column_text, 0)
+        self.control_sizer.Add(column_sizer, 0, wx.ALL, 5)
+
+        # Initialising and adding the Plot type combobox to the left controls sizer
+        plot_type_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        plot_type_sizer.Add(wx.StaticText(self, label='Type of plot: '), 1, wx.ALIGN_CENTER_VERTICAL)
+        self.plot_type_combo = wx.ComboBox(self, value=self.config[self.name]['Plot type'],
+                                           choices=['XY', 'Time-based', 'Disabled'])
+        plot_type_sizer.Add(self.plot_type_combo, 0, wx.ALIGN_LEFT)
+        self.control_sizer.Add(plot_type_sizer, 0, wx.ALL, 5)
+
+    def Update_Disabled_plot_type_config(self):
+        """
+            If the plot type is changed to 'Disabled' this function reset the tab to the Disabled layout.
+
+            :returns Nothing
+
+        """
+
+        #Remove the old sizers and reinitialise the common widgets
+        self.Base_update_tab_config()
+
+        #Adding the left controls to the Overall sizer
+        self.main_sizer.Add(self.control_sizer, 1, wx.EXPAND)
+
+        #Complete the Overall sizer for the 'Disabled' plot type
+        self.Initial_Disabled_tab_config()
+
+        # Binding the plot type combobox with a function that update the tab depending on the plot type selected
+        self.plot_type_combo.Bind(wx.EVT_COMBOBOX_CLOSEUP, self.Update_tab_plot_type_config)
+
+        # Adjusting the whole window to the new tab config
+        self.Layout()
+
+    def Initial_Disabled_tab_config(self):
+        """
+            Complete the 'Disabled' plot type tab configuration
+
+            :returns Nothing
+
+        """
+
+        self.display = None # to make sure that when the plot title is changed, there is not error.
+
+        self.static_line_main = wx.StaticLine(self, style=wx.LI_VERTICAL)
+        self.main_sizer.Add(self.static_line_main, 0, wx.EXPAND)
+
+        self.main_sizer.Add(self.display_control_buttons_sizer, 2, wx.EXPAND)
+
+    def Update_XY_plot_type_config(self):
+        """
+            If the plot type is changed to 'XY' this function reset the tab to the XY layout.
+
+            :returns Nothing
+
+        """
+
+        if 'XY' not in self.config[self.name].keys():
+            self.config[self.name]['XY'] = {
+                'X axis value': 'V',
+                'Y1 axis specific value': {
+                    'AC_VRMS_1': 'True',
+                    'AC_VRMS_2': 'False',
+                    'AC_VRMS_3': 'False',
+                    'AC_IRMS_1': 'False',
+                    'AC_IRMS_2': 'False',
+                    'AC_IRMS_3': 'False',
+                    'AC_P_1': 'False',
+                    'AC_P_2': 'False',
+                    'AC_P_3': 'False',
+                    'AC_S_1': 'False',
+                    'AC_S_2': 'False',
+                    'AC_S_3': 'False',
+                    'AC_Q_1': 'False',
+                    'AC_Q_2': 'False',
+                    'AC_Q_3': 'False',
+                    'AC_PF_1': 'False',
+                    'AC_PF_2': 'False',
+                    'AC_PF_3': 'False',
+                    'AC_FREQ_1': 'False',
+                    'AC_FREQ_2': 'False',
+                    'AC_FREQ_3': 'False',
+
+                },
+                'Y2 axis value': 'Disabled',
+                'Y2 axis specific value': {
+                    'AC_VRMS_1': 'False',
+                    'AC_VRMS_2': 'False',
+                    'AC_VRMS_3': 'False',
+                    'AC_IRMS_1': 'False',
+                    'AC_IRMS_2': 'False',
+                    'AC_IRMS_3': 'False',
+                    'AC_P_1': 'True',
+                    'AC_P_2': 'False',
+                    'AC_P_3': 'False',
+                    'AC_S_1': 'False',
+                    'AC_S_2': 'False',
+                    'AC_S_3': 'False',
+                    'AC_Q_1': 'False',
+                    'AC_Q_2': 'False',
+                    'AC_Q_3': 'False',
+                    'AC_PF_1': 'False',
+                    'AC_PF_2': 'False',
+                    'AC_PF_3': 'False',
+                    'AC_FREQ_1': 'False',
+                    'AC_FREQ_2': 'False',
+                    'AC_FREQ_3': 'False',
+
+                },
+                'Remove duplicates': 'True',
+                'filters': [],
+                'Grid': 'True',
+                'Legend': 'True',
+                'X axis title': 'x axis',
+                'Y1 axis title': 'y1 axis',
+                'Y2 axis title': 'y2 axis',
+            }
+
+        #Remove the old sizers and reinitialise the common widgets
+        self.Base_update_tab_config()
+
+        self.axis_selection_availability = self.config['MainTab']['Standard tested'] != '1547.1'
+        # Initialising and adding the x value combobox to the left controls sizer
+        x_value_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        x_value_static = wx.StaticText(self, label='X axis value: ')
+        self.x_value_combo = wx.ComboBox(self, value=self.config[self.name]['XY']['X axis value'],
+                                         choices=['V', 'I', 'P', 'S', 'Q', 'PF', 'F'])
+        self.x_value_combo.Bind(wx.EVT_COMBOBOX_CLOSEUP, self.XY_X_axis_value_update)
+        self.x_value_combo.Enable(self.axis_selection_availability)
+        x_value_sizer.Add(x_value_static, 1, wx.ALIGN_CENTER_VERTICAL)
+        x_value_sizer.Add(self.x_value_combo, 0, wx.ALIGN_LEFT)
+        self.control_sizer.Add(x_value_sizer, 0, wx.ALL, 5)
+
+        # Initialising and adding the y1 axis value combobox to the left controls sizer
+        y1_value_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        y1_value_static = wx.StaticText(self, label='y1 axis value: ')
+        self.y1_select_values_button = wx.Button(self, label="Select values")
+        self.y1_select_values_button.Bind(wx.EVT_BUTTON, self.XY_Y1_axis_value_select)
+        y1_value_sizer.Add(y1_value_static, 1, wx.ALIGN_CENTER_VERTICAL)
+        y1_value_sizer.Add(self.y1_select_values_button, 0, wx.ALIGN_LEFT)
+
+        self.control_sizer.Add(y1_value_sizer, 0, wx.ALL, 5)
+
+        # Initialising and adding the y2 axis value combobox to the left controls sizer
+        y2_value_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        y2_value_static = wx.StaticText(self, label='y2 axis value: ')
+        self.y2_value_combo = wx.ComboBox(self, value=self.config[self.name]['XY']['Y2 axis value'],
+                                          choices=['Enabled', 'Disabled'])
+        self.y2_value_combo.Bind(wx.EVT_COMBOBOX_CLOSEUP, self.XY_Access_y2_control)
+        self.y2_active = self.config[self.name]['XY']['Y2 axis value'] != 'Disabled'
+        self.y2_select_values_button = wx.Button(self, label="Select values")
+        self.y2_select_values_button.Bind(wx.EVT_BUTTON, self.XY_Y2_axis_value_select)
+        self.y2_select_values_button.Show(self.y2_active)
+        y2_value_sizer.Add(y2_value_static, 1, wx.ALIGN_CENTER_VERTICAL)
+        y2_value_sizer.Add(self.y2_value_combo, 0, wx.ALIGN_LEFT)
+        y2_value_sizer.Add(self.y2_select_values_button, 0, wx.ALIGN_LEFT)
+        self.control_sizer.Add(y2_value_sizer, 0, wx.ALL, 5)
+
+        remove_duplicates_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        remove_duplicates_static = wx.StaticText(self, label='Remove duplicates: ')
+        self.remove_duplicates_checkbox = wx.CheckBox(self)
+        self.remove_duplicates_checkbox.SetValue(self.config[self.name]['XY']['Remove duplicates'] == 'True')
+        self.remove_duplicates_checkbox.Bind(wx.EVT_CHECKBOX, self.XY_remove_duplicates_update)
+        remove_duplicates_sizer.Add(remove_duplicates_static, 1, wx.ALIGN_CENTER_VERTICAL)
+        remove_duplicates_sizer.Add(self.remove_duplicates_checkbox, 0, wx.ALIGN_LEFT)
+        self.control_sizer.Add(remove_duplicates_sizer, 0, wx.ALL, 5)
+
+        self.filter_button = wx.Button(self, label='Add filter')
+        self.filter_button.Bind(wx.EVT_BUTTON, self.XY_add_filter)
+        self.control_sizer.Add(self.filter_button, 0, wx.ALL, 5)
+
+        if self.config[self.name]['XY']['filters']:
+            self.XY_add_filter(evt=None)
+
+        #Adding the left controls to the Overall sizer
+        self.main_sizer.Add(self.control_sizer, 1, wx.EXPAND)
+
+        #Adding the vertical line seperating the left controls and the display to the Overall sizer
+        self.static_line_main = wx.StaticLine(self, style=wx.LI_VERTICAL)
+        self.main_sizer.Add(self.static_line_main, 0, wx.EXPAND)
+
+        # Initialising and Adding the Display to the right display and controls tab sizer
+        self.display_sizer = wx.BoxSizer(wx.HORIZONTAL)
+         # Initialising the modified Matplotlib Canvas Object of the RealTimePlotting.py script (Figure not yet intialised)
+        self.display = RTP.Preference_canvas(self, size=self.GetParent().GetParent().GetSize(),
+                                             title=self.title_text.GetValue())
+        self.display_sizer.Add(self.display, 1, wx.EXPAND | wx.ALL, 5)
+        self.Bind(wx.EVT_SIZE, self.GraphResize)
+        self.GetParent().Bind(wx.EVT_MAXIMIZE, self.GraphResize)
+        self.display_control_buttons_sizer.Add(self.display_sizer, 2, wx.EXPAND)
+
+        # Adding an Horizontal line to the right display and controls tab sizer that separate the display from the controls
+        static_line_dcb_1 = wx.StaticLine(self, style=wx.LI_HORIZONTAL)
+        self.display_control_buttons_sizer.Add(static_line_dcb_1, 0, wx.EXPAND)
+
+        #Initialising the right controls sizer
+        controls_under_display_sizer = wx.BoxSizer(wx.HORIZONTAL)
+
+        # Initialising and adding the first control sizer for general XY set up to the right controls sizer
+        general_control_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.XY_General_and_x_control_setup(general_control_sizer)
+        controls_under_display_sizer.Add(general_control_sizer, 1, wx.EXPAND | wx.ALIGN_LEFT)
+
+        #Adding a vertical line to the right controls that separate the first and second control sizers
+        static_line_cud_1 = wx.StaticLine(self, style=wx.LI_VERTICAL)
+        controls_under_display_sizer.Add(static_line_cud_1, 0, wx.EXPAND)
+
+        # Initialising and adding the second control sizer for specific X axis set up to the right controls sizer
+        x_control_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.XY_Y1_control_SetUp(x_control_sizer)
+        controls_under_display_sizer.Add(x_control_sizer, 1, wx.EXPAND | wx.ALIGN_CENTER_HORIZONTAL)
+
+        # Adding a vertical line to the right controls that separate the second and third control sizers
+        static_line_cud_2 = wx.StaticLine(self, style=wx.LI_VERTICAL)
+        controls_under_display_sizer.Add(static_line_cud_2, 0, wx.EXPAND)
+
+        # Initialising and adding the third control sizer for specific Y axis set up to the right controls sizer
+        y_control_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.XY_Y2_control_SetUp(y_control_sizer)
+        controls_under_display_sizer.Add(y_control_sizer, 1, wx.EXPAND | wx.ALIGN_RIGHT)
+
+        # Adding the right controls to the right display and controls sizer
+        self.display_control_buttons_sizer.Add(controls_under_display_sizer, 1, wx.EXPAND)
+
+        # Adding the right display and control sizers to the Overall sizer
+        self.main_sizer.Add(self.display_control_buttons_sizer, 2, wx.EXPAND)
+
+        # Binding the plot type combobox with a function that update the tab depending on the plot type selected
+        self.plot_type_combo.Bind(wx.EVT_COMBOBOX_CLOSEUP, self.Update_tab_plot_type_config)
+
+        # Initialisation of the XY figure with all the parameters and showed through the self.display canvas
+        self.display.Create_Figure(type=self.plot_type, parameters=self.config[self.name]['XY'])
+
+        # Adjusting the window to the new tab config
+        self.Layout()
+
+        self.GraphResize(evt=None)
+
+    def XY_X_axis_value_update(self, evt):
+        self.config[self.name]['XY']['X axis value'] = self.x_value_combo.GetValue()
+
+    def XY_Y1_axis_value_select(self, evt):
+
+        dialog = YAxisValueDialog(self, "Y1 axis specific value", self.name, self.config)
+        dialog.CenterOnParent()
+        dialog.ShowModal()
+        dialog.Destroy()
+
+    def XY_Y2_axis_value_select(self, evt):
+
+        dialog = YAxisValueDialog(self, "Y2 axis specific value", self.name, self.config)
+        dialog.CenterOnParent()
+        dialog.ShowModal()
+        dialog.Destroy()
+
+    def XY_remove_duplicates_update(self, evt):
+
+        self.config[self.name]['XY']['Remove duplicates'] = str(self.remove_duplicates_checkbox.GetValue())
+
+    def XY_add_filter(self, evt):
+        if evt:
+            filter_sizer = wx.BoxSizer(wx.HORIZONTAL)
+            filter_static = wx.StaticText(self, label='Filter: ')
+            filter_text = wx.TextCtrl(self, value='')
+            filter_apply_button = wx.Button(self, label='Apply')
+            filter_apply_button.Bind(wx.EVT_BUTTON, self.XY_filter_apply)
+            filter_remove_button = wx.Button(self, label='Remove')
+            filter_remove_button.Bind(wx.EVT_BUTTON, self.XY_filter_remove)
+            filter_sizer.Add(filter_static, 0)
+            filter_sizer.Add(filter_text, 1, wx.ALIGN_LEFT)
+            filter_sizer.Add(filter_apply_button, 0, wx.ALIGN_LEFT)
+            filter_sizer.Add(filter_remove_button, 0, wx.ALIGN_LEFT)
+            self.control_sizer.Add(filter_sizer, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 5)
+        else:
+            for filter in self.config[self.name]['XY']['filters']:
+                filter_sizer = wx.BoxSizer(wx.HORIZONTAL)
+                filter_static = wx.StaticText(self, label='Filter: ')
+                filter_text = wx.TextCtrl(self, value=filter)
+                filter_apply_button = wx.Button(self, label='Apply')
+                filter_apply_button.Bind(wx.EVT_BUTTON, self.XY_filter_apply)
+                filter_remove_button = wx.Button(self, label='Remove')
+                filter_remove_button.Bind(wx.EVT_BUTTON, self.XY_filter_remove)
+                filter_sizer.Add(filter_static, 0)
+                filter_sizer.Add(filter_text, 1, wx.ALIGN_LEFT)
+                filter_sizer.Add(filter_apply_button, 0, wx.ALIGN_LEFT)
+                filter_sizer.Add(filter_remove_button, 0, wx.ALIGN_LEFT)
+                self.control_sizer.Add(filter_sizer, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 5)
+        self.Layout()
+        self.GetParent().Layout()
+
+    def XY_filter_apply(self, evt):
+        text = evt.EventObject.ContainingSizer.Children[1].Window.GetValue()
+        if text not in self.config[self.name]['XY']['filters']:
+            self.config[self.name]['XY']['filters'].append(text)
+
+    def XY_filter_remove(self, evt):
+        text = evt.EventObject.ContainingSizer.Children[1].Window.GetValue()
+        if text in self.config[self.name]['XY']['filters']:
+            self.config[self.name]['XY']['filters'].remove(text)
+        sizer = evt.EventObject.ContainingSizer
+        self.control_sizer.Hide(sizer)
+        self.control_sizer.Remove(sizer)
+        self.Layout()
+        self.GetParent().Layout()
+
+
+    def XY_Access_y2_control(self, evt):
+        """
+            When the y2 value from left controls is changed, this function enables or disable the y2 specific settings
+             of the right controls. It also adjusts the figure to add or remove the y2 line and parameters.
+
+            :returns Nothing
+
+        """
+        self.config[self.name]['XY']['Y2 axis value'] = self.y2_value_combo.GetValue()
+
+        if self.y2_value_combo.GetValue() == 'Disabled':
+            self.y2_axis_title_text.Disable()
+            self.y2_select_values_button.Hide()
+            self.display.pref_figure.delaxes(self.display.second_axes)
+            for line in self.display.second_axes.get_lines():
+                line.remove()
+                self.display.nbr_of_plots -= 1
+            self.display.second_axes = None
+            self.display.XY_refresh_lines_axes()
+            self.GraphResize(evt=None)
+        else:
+            self.y2_axis_title_text.Enable()
+            self.y2_select_values_button.Show(True)
+            self.Layout()
+            if self.display.second_axes is None:
+                self.display.XY_add_second_axes()
+
+    def XY_General_and_x_control_setup(self, general_control_sizer):
+        """
+            Initialise the first control sizer of the right controls, which represent the general setting of the XY
+            figure
+            :param general_control_sizer: wx.BoxSizer(wx.Vertical) - sizer used for the general setting of the XY
+            figure
+
+            :returns Nothing
+
+        """
+
+        #Adding the title static text widget to the first right controls sizer
+        general_control_sizer.Add(wx.StaticText(self, label='General and x value Plot Setting:'))
+
+        # Initialising and adding the X axis title text widget to the second right controls sizer
+        x_axis_title_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        x_axis_title_static = wx.StaticText(self, label='x axis title: ')
+        self.x_axis_title_text = wx.TextCtrl(self, value=self.config[self.name]['XY']['X axis title'],
+                                             style=wx.TE_PROCESS_ENTER)
+        self.x_axis_title_text.Bind(wx.EVT_TEXT_ENTER, self.X_axis_update)
+        x_axis_title_sizer.Add(x_axis_title_static, 1, wx.ALIGN_CENTER_VERTICAL)
+        x_axis_title_sizer.Add(self.x_axis_title_text, 0, wx.ALIGN_LEFT)
+        general_control_sizer.Add(x_axis_title_sizer, 0, wx.ALL, 5)
+
+        # Initialising and adding the Grid checkbox to the first right controls sizer
+        grid_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        grid_static = wx.StaticText(self, label='With Grid: ')
+        self.grid_checkbox = wx.CheckBox(self)
+        self.grid_checkbox.SetValue(self.config[self.name]['XY']['Grid'] == 'True')
+        self.grid_checkbox.Bind(wx.EVT_CHECKBOX, self.Grid_update)
+        grid_sizer.Add(grid_static, 1, wx.ALIGN_CENTER_VERTICAL)
+        grid_sizer.Add(self.grid_checkbox, 0, wx.ALIGN_LEFT)
+        general_control_sizer.Add(grid_sizer, 0, wx.ALL, 5)
+
+        # Initialising and adding the Legend checkbox to the first right controls sizer
+        legend_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        legend_static = wx.StaticText(self, label='With Legend: ')
+        self.legend_checkbox = wx.CheckBox(self)
+        self.legend_checkbox.SetValue(self.config[self.name]['XY']['Legend'] == 'True')
+        self.legend_checkbox.Bind(wx.EVT_CHECKBOX, self.XY_Legend_update)
+        legend_sizer.Add(legend_static, 1, wx.ALIGN_CENTER_VERTICAL)
+        legend_sizer.Add(self.legend_checkbox, 0, wx.ALIGN_LEFT)
+        general_control_sizer.Add(legend_sizer, 0, wx.ALL, 5)
+
+    def XY_Legend_refresh(self):
+        """
+            When a Display line is disabled, this function changes the Display figure by adding or
+            removing the Disabled line from the legend.
+
+            :returns Nothing
+
+        """
+        if self.display.axes.get_legend() is not None:
+            self.display.axes.get_legend().remove()
+            self.display.XY_refresh_legend()
+
+        else:
+            pass
+
+    def XY_Legend_update(self, evt):
+        """
+            When the 'Legend' checkbox state is changed, this function changes the Display figure by adding or
+            removing the Legend depending on the checkbox state and current line enabled. Then, it
+             readjust the Canvas to the window with the new change
+
+            :returns Nothing
+
+        """
+        if self.legend_checkbox.GetValue():
+            self.display.XY_refresh_legend()
+        else:
+            self.display.axes.get_legend().remove()
+        self.display.parameters['Legend'] = str(self.legend_checkbox.GetValue())
+        self.config[self.name]['XY']['Legend'] = str(self.legend_checkbox.GetValue())
+        self.GraphResize(evt=None)
+
+    def XY_Y1_control_SetUp(self, y1_control_sizer=None):
+        """
+            Initialise the second control sizer of the right controls, which represent the specific Y1 setting of the
+            Time-based figure
+            :param y1_control_sizer: wx.BoxSizer(wx.Vertical) - sizer used for the specific Y1 setting of the
+            time-based figure
+
+            :returns Nothing
+
+        """
+        # Adding the title static text widget to the second right controls sizer
+        y1_control_sizer.Add(wx.StaticText(self, label='y1 value Plot Setting :'))
+
+        # Initialising and adding the Y1 axis title text widget to the second right controls sizer
+        y1_axis_title_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        y1_axis_title_static = wx.StaticText(self, label='y1 axis title: ')
+        self.y1_axis_title_text = wx.TextCtrl(self, value=self.config[self.name]['XY']['Y1 axis title'],
+                                              style=wx.TE_PROCESS_ENTER)
+        self.y1_axis_title_text.Bind(wx.EVT_TEXT_ENTER, self.XY_Y1_axis_update)
+        y1_axis_title_sizer.Add(y1_axis_title_static, 1, wx.ALIGN_CENTER_VERTICAL)
+        y1_axis_title_sizer.Add(self.y1_axis_title_text, 0, wx.ALIGN_LEFT)
+        y1_control_sizer.Add(y1_axis_title_sizer, 0, wx.ALL, 5)
+
+    def XY_Y1_axis_update(self, evt):
+        """
+            When the y1 axis title is changed, this function change the y1 axis title of the Display figure and readjust
+             the Canvas to the window with the new change
+
+            :returns Nothing
+
+        """
+        self.display.axes.set_ylabel(self.y1_axis_title_text.GetValue())
+        self.display.parameters['Y1 axis title'] = self.y1_axis_title_text.GetValue()
+        self.config[self.name]['XY']['Y1 axis title'] = self.y1_axis_title_text.GetValue()
+        self.GraphResize(evt=None)
+
+    def XY_Y2_control_SetUp(self, y2_control_sizer=None):
+        """
+            Initialise the third control sizer of the right controls, which represent the specific Y2 setting of the
+             Time-based figure
+
+            However all the y2 controls widgets are disabled initially. To Enable, select a y2 value other than Disabled
+             from the y2 value combobox.
+
+            :param y2_control_sizer: wx.BoxSizer(wx.Vertical) - sizer used for the specific Y2 setting of the
+            Time-based figure
+
+            :returns Nothing
+
+        """
+        # Adding the title static text widget to the third right controls sizer
+        y2_control_sizer.Add(wx.StaticText(self, label='y2 value Plot setting :'))
+
+        # Initialising and adding the Y2 axis title text widget to the third right controls sizer
+        y2_axis_title_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        y2_axis_title_static = wx.StaticText(self, label='y2 axis title: ')
+        self.y2_axis_title_text = wx.TextCtrl(self, value=self.config[self.name]['XY']['Y2 axis title'],
+                                              style=wx.TE_PROCESS_ENTER)
+        self.y2_axis_title_text.Bind(wx.EVT_TEXT_ENTER, self.XY_Y2_axis_update)
+        self.y2_axis_title_text.Enable(self.y2_active)
+        y2_axis_title_sizer.Add(y2_axis_title_static, 1, wx.ALIGN_CENTER_VERTICAL)
+        y2_axis_title_sizer.Add(self.y2_axis_title_text, 0, wx.ALIGN_LEFT)
+        y2_control_sizer.Add(y2_axis_title_sizer, 0, wx.ALL, 5)
+
+    def XY_Y2_axis_update(self, evt):
+        """
+            When the y2 axis title is changed, this function change the y2 axis title of the Display figure and readjust
+             the Canvas to the window with the new change
+
+            :returns Nothing
+
+        """
+        self.display.second_axes.set_ylabel(self.y2_axis_title_text.GetValue())
+        self.display.parameters['Y2 axis title'] = self.y2_axis_title_text.GetValue()
+        self.config[self.name]['XY']['Y2 axis title'] = self.y2_axis_title_text.GetValue()
+        self.GraphResize(evt=None)
+
+    def Update_Time_based_plot_type_config(self):
+        """
+            If the plot type is changed to 'Time-based' this function reset the tab to the Time-based layout.
+
+            :returns Nothing
+
+        """
+
+        if 'Time-based' not in self.config[self.name].keys():
+            self.config[self.name]['Time-based'] = {
+                'X axis value': 'Time',
+                'Time display option': 'Show everything',
+                'Time window': '6',
+                'Y1 axis specific value': {
+                    'AC_VRMS_1': 'True',
+                    'AC_VRMS_2': 'False',
+                    'AC_VRMS_3': 'False',
+                    'AC_IRMS_1': 'False',
+                    'AC_IRMS_2': 'False',
+                    'AC_IRMS_3': 'False',
+                    'AC_P_1': 'False',
+                    'AC_P_2': 'False',
+                    'AC_P_3': 'False',
+                    'AC_S_1': 'False',
+                    'AC_S_2': 'False',
+                    'AC_S_3': 'False',
+                    'AC_Q_1': 'False',
+                    'AC_Q_2': 'False',
+                    'AC_Q_3': 'False',
+                    'AC_PF_1': 'False',
+                    'AC_PF_2': 'False',
+                    'AC_PF_3': 'False',
+                    'AC_FREQ_1': 'False',
+                    'AC_FREQ_2': 'False',
+                    'AC_FREQ_3': 'False',
+
+                },
+                'Y2 axis value': 'Disabled',
+                'Y2 axis specific value': {
+                    'AC_VRMS_1': 'False',
+                    'AC_VRMS_2': 'False',
+                    'AC_VRMS_3': 'False',
+                    'AC_IRMS_1': 'False',
+                    'AC_IRMS_2': 'False',
+                    'AC_IRMS_3': 'False',
+                    'AC_P_1': 'True',
+                    'AC_P_2': 'False',
+                    'AC_P_3': 'False',
+                    'AC_S_1': 'False',
+                    'AC_S_2': 'False',
+                    'AC_S_3': 'False',
+                    'AC_Q_1': 'False',
+                    'AC_Q_2': 'False',
+                    'AC_Q_3': 'False',
+                    'AC_PF_1': 'False',
+                    'AC_PF_2': 'False',
+                    'AC_PF_3': 'False',
+                    'AC_FREQ_1': 'False',
+                    'AC_FREQ_2': 'False',
+                    'AC_FREQ_3': 'False',
+
+                },
+                'X axis title': 'x axis',
+                'Grid': 'True',
+                'Legend': 'True',
+                'Y1 axis title': 'y1 axis',
+                'Y2 axis title': 'y2 axis',
+            }
+
+        # Remove the old sizers and reinitialise the common widgets
+        self.Base_update_tab_config()
+
+        # Initialising and adding the x value static text widget to the left controls sizer
+        x_value_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        x_value_static = wx.StaticText(self, label='x axis value: ')
+        self.x_value_static_Text = wx.StaticText(self, label=self.config[self.name]['Time-based']['X axis value'])
+        x_value_sizer.Add(x_value_static, 1, wx.ALIGN_CENTER_VERTICAL)
+        x_value_sizer.Add(self.x_value_static_Text, 0, wx.ALIGN_LEFT)
+        self.control_sizer.Add(x_value_sizer, 0, wx.ALL, 5)
+
+        # Initialising and adding the time option widget to the left controls sizer
+        time_option_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        time_option_static = wx.StaticText(self, label='Time display: ')
+        self.time_option_combo = wx.ComboBox(self, value=self.config[self.name]['Time-based']['Time display option'],
+                                             choices=['Show everything', 'Specific time window (s)'])
+        self.time_window_active = self.config[self.name]['Time-based']['Time display option'] == 'Specific time window (s)'
+        self.time_window_text = wx.TextCtrl(self, value=self.config[self.name]['Time-based']['Time window'],
+                                            style=wx.TE_PROCESS_ENTER, size=(20, -1))
+        self.time_option_combo.Bind(wx.EVT_COMBOBOX_CLOSEUP, self.Time_based_time_display_option_update)
+        self.time_window_text.Bind(wx.EVT_TEXT_ENTER, self.Time_based_time_window_update)
+        self.time_window_text.Show(self.time_window_active)
+        time_option_sizer.Add(time_option_static, 1, wx.ALIGN_CENTER_VERTICAL)
+        time_option_sizer.Add(self.time_option_combo, 0, wx.ALIGN_LEFT)
+        time_option_sizer.Add(self.time_window_text, 0, wx.ALIGN_LEFT)
+        self.control_sizer.Add(time_option_sizer, 0, wx.ALL, 5)
+
+        # Initialising and adding the y1 axis value combobox to the left controls sizer
+        y1_value_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        y1_value_static = wx.StaticText(self, label='y1 axis value: ')
+        self.y1_select_values_button = wx.Button(self, label="Select values")
+        self.y1_select_values_button.Bind(wx.EVT_BUTTON, self.Time_based_Y1_axis_value_select)
+        y1_value_sizer.Add(y1_value_static, 1, wx.ALIGN_CENTER_VERTICAL)
+        y1_value_sizer.Add(self.y1_select_values_button, 0, wx.ALIGN_LEFT)
+
+        self.control_sizer.Add(y1_value_sizer, 0, wx.ALL, 5)
+
+        # Initialising and adding the y2 axis value combobox to the left controls sizer
+        y2_value_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        y2_value_static = wx.StaticText(self, label='y2 axis value: ')
+        self.y2_value_combo = wx.ComboBox(self, value=self.config[self.name]['Time-based']['Y2 axis value'],
+                                         choices=['Enabled', 'Disabled'])
+        self.y2_value_combo.Bind(wx.EVT_COMBOBOX_CLOSEUP, self.Time_based_Access_y2_control)
+        self.y2_active = self.config[self.name]['Time-based']['Y2 axis value'] != 'Disabled'
+        self.y2_select_values_button = wx.Button(self, label="Select values")
+        self.y2_select_values_button.Bind(wx.EVT_BUTTON, self.Time_based_Y2_axis_value_select)
+        self.y2_select_values_button.Show(self.y2_active)
+        y2_value_sizer.Add(y2_value_static, 1, wx.ALIGN_CENTER_VERTICAL)
+        y2_value_sizer.Add(self.y2_value_combo, 0, wx.ALIGN_LEFT)
+        y2_value_sizer.Add(self.y2_select_values_button, 0, wx.ALIGN_LEFT)
+        self.control_sizer.Add(y2_value_sizer, 0, wx.ALL, 5)
+
+        # Adding the left controls to the Overall sizer
+        self.main_sizer.Add(self.control_sizer, 1, wx.EXPAND)
+
+        # Adding the vertical line seperating the left controls and the display to the Overall sizer
+        self.static_line_main = wx.StaticLine(self, style=wx.LI_VERTICAL)
+        self.main_sizer.Add(self.static_line_main, 0, wx.EXPAND)
+
+        # Initialising and Adding the Display to the right display and controls tab sizer
+        self.display_sizer = wx.BoxSizer(wx.HORIZONTAL)
+
+         # Initialising the modified Matplotlib Canvas Object of the RealTimePlotting.py script (Figure not yet intialised)
+        self.display = RTP.Preference_canvas(self, size=self.GetParent().GetParent().GetSize(),
+                                             title=self.title_text.GetValue())
+        self.display_sizer.Add(self.display, 1, wx.EXPAND | wx.ALL, 5)
+        self.Bind(wx.EVT_SIZE, self.GraphResize)
+        self.display_control_buttons_sizer.Add(self.display_sizer, 2, wx.EXPAND)
+
+        # Adding an Horizontal line to the right display and controls tab sizer that separate the display from the controls
+        static_line_dcb_1 = wx.StaticLine(self, style=wx.LI_HORIZONTAL)
+        self.display_control_buttons_sizer.Add(static_line_dcb_1, 0, wx.EXPAND)
+
+        # Initialising the right controls sizer
+        controls_under_display_sizer = wx.BoxSizer(wx.HORIZONTAL)
+
+        # Initialising and adding the first control sizer for general and X axis set up to the right controls sizer
+        gen_x_control_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.Time_based_General_and_x_control_SetUp(gen_x_control_sizer)
+        controls_under_display_sizer.Add(gen_x_control_sizer, 1, wx.EXPAND | wx.ALIGN_LEFT)
+
+        # Adding a vertical line to the right controls that separate the first and second control sizers
+        static_line_cud_1 = wx.StaticLine(self, style= wx.LI_VERTICAL)
+        controls_under_display_sizer.Add(static_line_cud_1, 0, wx.EXPAND)
+
+        # Initialising and adding the second control sizer for specific Y1 axis set up to the right controls sizer
+        y1_control_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.Time_based_Y1_control_SetUp(y1_control_sizer)
+        controls_under_display_sizer.Add(y1_control_sizer, 1, wx.EXPAND | wx.ALIGN_CENTER_HORIZONTAL)
+
+        # Adding a vertical line to the right controls that separate the second and third control sizers
+        static_line_cud_2 = wx.StaticLine(self, style=wx.LI_VERTICAL)
+        controls_under_display_sizer.Add(static_line_cud_2, 0, wx.EXPAND)
+
+        # Initialising and adding the third control sizer for specific Y2 axis set up to the right controls sizer
+        y2_control_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.Time_based_Y2_control_SetUp(y2_control_sizer)
+        controls_under_display_sizer.Add(y2_control_sizer, 1, wx.EXPAND | wx.ALIGN_RIGHT)
+
+        # Adding the right controls to the right display and controls sizer
+        self.display_control_buttons_sizer.Add(controls_under_display_sizer, 1, wx.EXPAND)
+
+        # Adding the right display and control sizers to the Overall sizer
+        self.main_sizer.Add(self.display_control_buttons_sizer, 2, wx.EXPAND)
+
+        # Binding the plot type combobox with a function that update the tab depending on the plot type selected
+        self.plot_type_combo.Bind(wx.EVT_COMBOBOX_CLOSEUP, self.Update_tab_plot_type_config)
+
+        # Initialisation of the Time-based figure with all the parameters and showed through the self.display canvas
+        self.display.Create_Figure(type=self.plot_type, parameters=self.config[self.name]['Time-based'])
+
+        # Adjusting the window to the new tab config
+        self.Layout()
+
+        self.GraphResize(evt=None)
+
+    def Time_based_time_display_option_update(self, evt):
+        self.config[self.name]['Time-based']['Time display option'] = self.time_option_combo.GetValue()
+        self.time_window_active = self.time_option_combo.GetValue() == 'Specific time window (s)'
+        self.time_window_text.Show(self.time_window_active)
+        self.Layout()
+        self.GraphResize(evt=None)
+
+    def Time_based_time_window_update(self, evt):
+        self.config[self.name]['Time-based']['Time window'] = self.time_window_text.GetValue()
+
+    def Time_based_Y1_axis_value_select(self, evt):
+
+        dialog = YAxisValueDialog(self, "Y1 axis specific value", self.name, self.config)
+        dialog.CenterOnParent()
+        dialog.ShowModal()
+        dialog.Destroy()
+
+    def Time_based_Y2_axis_value_select(self, evt):
+
+        dialog = YAxisValueDialog(self, "Y2 axis specific value", self.name, self.config)
+        dialog.CenterOnParent()
+        dialog.ShowModal()
+        dialog.Destroy()
+
+    def Time_based_Access_y2_control(self, evt):
+        """
+            When the y2 value from left controls is changed, this function enables or disable the y2 specific settings
+             of the right controls. It also adjusts the figure to add or remove the y2 line and parameters.
+
+            :returns Nothing
+
+        """
+        self.config[self.name]['Time-based']['Y2 axis value'] = self.y2_value_combo.GetValue()
+
+        if self.y2_value_combo.GetValue() == 'Disabled':
+            self.y2_axis_title_text.Disable()
+            self.y2_select_values_button.Hide()
+            self.display.pref_figure.delaxes(self.display.second_axes)
+            for line in self.display.second_axes.get_lines():
+                line.remove()
+                self.display.nbr_of_plots -= 1
+            self.display.second_axes = None
+            self.display.Time_based_refresh_lines_axes()
+            self.GraphResize(evt=None)
+        else:
+            self.y2_axis_title_text.Enable()
+            self.y2_select_values_button.Show(True)
+            self.Layout()
+            if self.display.second_axes is None:
+                self.display.Time_based_add_second_axes()
+
+    # def Time_based_Y2_axis_specific_value_update(self, evt):
+    #     self.config[self.name]['Time-based']['Y2 axis specific value'] = self.y2_specific_value_combo.GetValue()
+
+    def Time_based_General_and_x_control_SetUp(self, gen_x_control_sizer=None):
+        """
+            Initialise the first control sizer of the right controls, which represent the general setting and specific X
+             setting of the time-based figure
+            :param general_x_control_sizer: wx.BoxSizer(wx.Vertical) - sizer used for the general and X setting of the
+             time-based figure
+
+            :returns Nothing
+
+        """
+        # Adding the title static text widget to the first right controls sizer
+        gen_x_control_sizer.Add(wx.StaticText(self, label='General and x value Plot Setting:'))
+
+        # Initialising and adding the X axis title text widget to the first right controls sizer
+        x_axis_title_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        x_axis_title_static = wx.StaticText(self, label='x axis title: ')
+        self.x_axis_title_text = wx.TextCtrl(self, value=self.config[self.name]['Time-based']['X axis title'],
+                                             style=wx.TE_PROCESS_ENTER)
+        self.x_axis_title_text.Bind(wx.EVT_TEXT_ENTER, self.X_axis_update)
+        x_axis_title_sizer.Add(x_axis_title_static, 1, wx.ALIGN_CENTER_VERTICAL)
+        x_axis_title_sizer.Add(self.x_axis_title_text, 0, wx.ALIGN_LEFT)
+        gen_x_control_sizer.Add(x_axis_title_sizer, 0, wx.ALL, 5)
+
+        # Initialising and adding the Grid chekcbox to the first right controls sizer
+        grid_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        grid_static = wx.StaticText(self, label='With Grid: ')
+        self.grid_checkbox = wx.CheckBox(self)
+        self.grid_checkbox.SetValue(self.config[self.name]['Time-based']['Grid'] == 'True')
+        self.grid_checkbox.Bind(wx.EVT_CHECKBOX, self.Grid_update)
+        grid_sizer.Add(grid_static, 1, wx.ALIGN_CENTER_VERTICAL)
+        grid_sizer.Add(self.grid_checkbox, 0, wx.ALIGN_LEFT)
+        gen_x_control_sizer.Add(grid_sizer, 0, wx.ALL, 5)
+
+        # Initialising and adding the Legend checkbox to the first right controls sizer
+        legend_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        legend_static = wx.StaticText(self, label='With Legend: ')
+        self.legend_checkbox = wx.CheckBox(self)
+        self.legend_checkbox.SetValue(self.config[self.name]['Time-based']['Legend'] == 'True')
+        self.legend_checkbox.Bind(wx.EVT_CHECKBOX, self.Time_based_Legend_update)
+        legend_sizer.Add(legend_static, 1, wx.ALIGN_CENTER_VERTICAL)
+        legend_sizer.Add(self.legend_checkbox, 0, wx.ALIGN_LEFT)
+        gen_x_control_sizer.Add(legend_sizer, 0, wx.ALL, 5)
+
+    def Time_based_Legend_refresh(self):
+        """
+            When a Display line is disabled, this function changes the Display figure by adding or
+            removing the Disabled line from the legend.
+
+            :returns Nothing
+
+        """
+        if self.display.axes.get_legend() is not None:
+            self.display.axes.get_legend().remove()
+            self.display.Time_based_refresh_legend()
+
+        else:
+            pass
+
+    def Time_based_Legend_update(self, evt):
+        """
+            When the 'Legend' checkbox state is changed, this function changes the Display figure by adding or
+            removing the Legend depending on the checkbox state and current line enabled. Then, it
+             readjust the Canvas to the window with the new change
+
+            :returns Nothing
+
+        """
+        if self.legend_checkbox.GetValue():
+            self.display.Time_based_refresh_legend()
+        else:
+            self.display.axes.get_legend().remove()
+        self.display.parameters['Legend'] = str(self.legend_checkbox.GetValue())
+        self.config[self.name]['Time-based']['Legend'] = str(self.legend_checkbox.GetValue())
+        self.GraphResize(evt=None)
+
+    def Time_based_Y1_control_SetUp(self, y1_control_sizer=None):
+        """
+            Initialise the second control sizer of the right controls, which represent the specific Y1 setting of the
+            Time-based figure
+            :param y1_control_sizer: wx.BoxSizer(wx.Vertical) - sizer used for the specific Y1 setting of the
+            time-based figure
+
+            :returns Nothing
+
+        """
+        # Adding the title static text widget to the second right controls sizer
+        y1_control_sizer.Add(wx.StaticText(self, label='y1 value Plot Setting :'))
+
+        # Initialising and adding the Y1 axis title text widget to the second right controls sizer
+        y1_axis_title_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        y1_axis_title_static = wx.StaticText(self, label='y1 axis title: ')
+        self.y1_axis_title_text = wx.TextCtrl(self, value=self.config[self.name]['Time-based']['Y1 axis title'],
+                                              style=wx.TE_PROCESS_ENTER)
+        self.y1_axis_title_text.Bind(wx.EVT_TEXT_ENTER, self.Time_based_Y1_axis_update)
+        y1_axis_title_sizer.Add(y1_axis_title_static, 1, wx.ALIGN_CENTER_VERTICAL)
+        y1_axis_title_sizer.Add(self.y1_axis_title_text, 0, wx.ALIGN_LEFT)
+        y1_control_sizer.Add(y1_axis_title_sizer, 0, wx.ALL, 5)
+
+    def Time_based_Y1_axis_update(self, evt):
+        """
+            When the y1 axis title is changed, this function change the y1 axis title of the Display figure and readjust
+             the Canvas to the window with the new change
+
+            :returns Nothing
+
+        """
+        self.display.axes.set_ylabel(self.y1_axis_title_text.GetValue())
+        self.display.parameters['Y1 axis title'] = self.y1_axis_title_text.GetValue()
+        self.config[self.name]['Time-based']['Y1 axis title'] = self.y1_axis_title_text.GetValue()
+        self.GraphResize(evt=None)
+
+    def Time_based_Y2_control_SetUp(self, y2_control_sizer=None):
+        """
+            Initialise the third control sizer of the right controls, which represent the specific Y2 setting of the
+             Time-based figure
+
+            However all the y2 controls widgets are disabled initially. To Enable, select a y2 value other than Disabled
+             from the y2 value combobox.
+
+            :param y2_control_sizer: wx.BoxSizer(wx.Vertical) - sizer used for the specific Y2 setting of the
+            Time-based figure
+
+            :returns Nothing
+
+        """
+        # Adding the title static text widget to the third right controls sizer
+        y2_control_sizer.Add(wx.StaticText(self, label='y2 value Plot setting :'))
+
+        # Initialising and adding the Y2 axis title text widget to the third right controls sizer
+        y2_axis_title_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        y2_axis_title_static = wx.StaticText(self, label='y2 axis title: ')
+        self.y2_axis_title_text = wx.TextCtrl(self, value=self.config[self.name]['Time-based']['Y2 axis title'],
+                                              style=wx.TE_PROCESS_ENTER)
+        self.y2_axis_title_text.Bind(wx.EVT_TEXT_ENTER, self.Time_based_Y2_axis_update)
+        self.y2_axis_title_text.Enable(self.y2_active)
+        y2_axis_title_sizer.Add(y2_axis_title_static, 1, wx.ALIGN_CENTER_VERTICAL)
+        y2_axis_title_sizer.Add(self.y2_axis_title_text, 0, wx.ALIGN_LEFT)
+        y2_control_sizer.Add(y2_axis_title_sizer, 0, wx.ALL, 5)
+
+    def Time_based_Y2_axis_update(self, evt):
+        """
+            When the y2 axis title is changed, this function change the y2 axis title of the Display figure and readjust
+             the Canvas to the window with the new change
+
+            :returns Nothing
+
+        """
+        self.display.second_axes.set_ylabel(self.y2_axis_title_text.GetValue())
+        self.display.parameters['Y2 axis title'] = self.y2_axis_title_text.GetValue()
+        self.config[self.name]['Time-based']['Y2 axis title'] = self.y2_axis_title_text.GetValue()
+        self.GraphResize(evt=None)
+
+    def GraphResize(self, evt):
+        """
+            Commmon function that resize and redraw the display canvas to the window and graph parameters changes
+
+            :returns Nothing
+
+        """
+        if self.config[self.name]['Plot type'] != 'Disabled':
+            height = self.display_sizer.GetSize()[1] / self.display.pref_figure.get_dpi()
+            width = self.display_sizer.GetSize()[0] / self.display.pref_figure.get_dpi()
+            if height != 0.0 or width != 0.0:
+                # heigh = 2.0
+                # width = 3.0
+                self.display.pref_figure.set_size_inches(width, height)
+                self.display.pref_figure.tight_layout()
+                self.display.draw()
+            self.Layout()
+            self.GetParent().Layout()
+        else:
+            pass
+
+    def X_axis_update(self, evt):
+        """
+            Common fuction: When the x axis title is changed, this function change the x axis title of the Display
+             figure and readjust the Canvas to the window with the new change
+
+            :returns Nothing
+
+        """
+        self.display.axes.set_xlabel(self.x_axis_title_text.GetValue())
+        self.display.parameters['X axis title'] = self.x_axis_title_text.GetValue()
+        self.config[self.name][self.config[self.name]['Plot type']]['X axis title'] = self.x_axis_title_text.GetValue()
+        self.GraphResize(evt=None)
+
+    def Grid_update(self, evt):
+        """
+            Common function: When the 'Grid' checkbox state is changed, this function changes the Display figure by
+            adding or removing the Grid depending on the checkbox state. Then, it readjust the Canvas to the window with
+             the new change
+
+            :returns Nothing
+
+        """
+        self.display.axes.grid(self.grid_checkbox.GetValue())
+        self.display.parameters['Grid'] = str(self.grid_checkbox.GetValue())
+        self.config[self.name][self.config[self.name]['Plot type']]['Grid'] = str(self.grid_checkbox.GetValue())
+        self.GraphResize(evt=None)
+
+    def Update_tab_plot_type_config(self, evt):
+        """
+            When the plot type is changed, this function select and configure the tab with the correct configuration
+             depending on the plot type
+
+            :returns Nothing
+
+        """
+        try:
+            self.plot_type = self.plot_type_combo.GetValue()
+            self.config[self.name]['Plot type'] = self.plot_type
+            if self.plot_type == 'Disabled':
+                self.Update_Disabled_plot_type_config()
+            elif self.plot_type == 'Time-based':
+                self.Update_Time_based_plot_type_config()
+            elif self.plot_type == 'XY':
+                self.Update_XY_plot_type_config()
+
+        except Exception as e:
+            print('sunssvp: error: {}'.format((e)))
+
+
+class YAxisValueDialog(wx.Dialog):
+
+    def __init__(self, entity=None, title=None, rtp_tab_name=None, config=None):
+
+        wx.Dialog.__init__(self, parent=entity, title=title,
+                           style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+        self.entity = entity
+        self.name = title
+        self.rtp_tab_name = rtp_tab_name
+        self.config = config
+        self.type = config[rtp_tab_name]['Plot type']
+        self.panel = wx.Panel(self)
+
+        back_sizer = wx.BoxSizer(wx.VERTICAL)
+        main_sizer = wx.BoxSizer(wx.VERTICAL)
+
+        types = ["V", "I", "P", "S", "Q", "PF", "F"]
+        names = ["AC_VRMS", "AC_IRMS", "AC_P", "AC_S", "AC_Q", "AC_PF", "AC_FREQ"]
+
+        for type in types:
+            temp_sizer = self.create_assign_sizer(type, names[types.index(type)])
+            main_sizer.Add(temp_sizer, 0, wx.ALL | wx.EXPAND, 5)
+
+        back_sizer.Add(main_sizer, 1, wx.ALL | wx.EXPAND | wx.ALIGN_CENTRE, 5)
+
+        button_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        button_select = wx.Button(self, label="Select")
+        button_select.Bind(wx.EVT_BUTTON, self.On_Select)
+        button_sizer.Add(button_select, 0, wx.RIGHT, 5)
+
+        button_cancel = wx.Button(self, label="Cancel")
+        button_cancel.Bind(wx.EVT_BUTTON, self.On_cancel)
+        button_sizer.Add(button_cancel, 0)
+
+        back_sizer.Add(button_sizer, 0, wx.EXPAND)
+        self.SetSizer(back_sizer)
+        self.Center()
+        self.Fit()
+
+
+    def create_assign_sizer(self, type=None, name=None):
+        assign_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        assign_static_type = wx.StaticText(self, label=type + ": ")
+
+        assign_static_value1 = wx.StaticText(self, label=name + "_1:")
+        assign_checkbox_value1 = wx.CheckBox(self, name=name + "_1")
+        assign_checkbox_value1.SetValue(self.config[self.rtp_tab_name][self.type][self.name]
+                                        [name + "_1"] == "True")
+        assign_checkbox_value1.Bind(wx.EVT_CHECKBOX, self.Y_axis_value_checkbox_update)
+
+        assign_static_value2 = wx.StaticText(self, label=name + "_2:")
+        assign_checkbox_value2 = wx.CheckBox(self, name=name + "_2")
+        assign_checkbox_value2.SetValue(self.config[self.rtp_tab_name][self.type][self.name]
+                                        [name + "_2"] == "True")
+        assign_checkbox_value2.Bind(wx.EVT_CHECKBOX, self.Y_axis_value_checkbox_update)
+
+        assign_static_value3 = wx.StaticText(self, label=name + "_3:")
+        assign_checkbox_value3 = wx.CheckBox(self, name=name + "_3")
+        assign_checkbox_value3.SetValue(self.config[self.rtp_tab_name][self.type][self.name]
+                                        [name + "_3"] == "True")
+        assign_checkbox_value3.Bind(wx.EVT_CHECKBOX, self.Y_axis_value_checkbox_update)
+
+        assign_sizer.Add(assign_static_type, 1, wx.ALIGN_CENTER)
+        assign_sizer.Add(assign_static_value1, 1)
+        assign_sizer.Add(assign_checkbox_value1, 1, wx.ALIGN_LEFT)
+        assign_sizer.Add(assign_static_value2, 1)
+        assign_sizer.Add(assign_checkbox_value2, 1, wx.ALIGN_LEFT)
+        assign_sizer.Add(assign_static_value3, 1)
+        assign_sizer.Add(assign_checkbox_value3, 1, wx.ALIGN_LEFT)
+
+        return assign_sizer
+
+    def Y_axis_value_checkbox_update(self, evt):
+        evt_item = evt.GetEventObject()
+        self.config[self.rtp_tab_name][self.type][self.name][evt_item.GetName()] = str(evt_item.GetValue())
+
+    def On_Select(self, evt):
+        if self.type == 'Time-based':
+            if self.name == 'Y1 axis specific value':
+                self.entity.display.Time_based_refresh_lines_axes()
+            elif self.name == 'Y2 axis specific value':
+                self.entity.display.Time_based_refresh_lines_second_axes()
+        else:
+            if self.name == 'Y1 axis specific value':
+                self.entity.display.XY_refresh_lines_axes()
+            elif self.name == 'Y2 axis specific value':
+                self.entity.display.XY_refresh_lines_second_axes()
+        self.entity.GraphResize(evt=None)
+        self.Destroy()
+
+    def On_cancel(self, evt):
+        self.Destroy()
+
+class RtpPrefDialog(wx.Dialog):
+
+    def __init__(self, entity=None, name=None, config=None, entry_type=None):
+        """
+            Initialize the Real-time Plotting prerefence Dialog
+            :param entity: wx.Frame, which is the parent of this dialog
+            title: string which is not really usefull
+            configFile: ConfigObj that is used to initialise, load and save the preference window parameters
+
+        """
+        wx.Dialog.__init__(self, parent=entity, title='Real-Time Plotting', size=(900, 600),
+                           style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER | wx.MINIMIZE_BOX | wx.MAXIMIZE_BOX)
+
+        self.entity = entity
+        self.name = name
+        self.entry_type = entry_type
+
+        if config == 'Default':
+            self.config = {'MainTab':
+                               {'RTP mode': 'Enabled',
+                                'Standard tested': '1547.1',
+                                'Row': '2',
+                                'Column': '1',
+                                'Number of other tab': '2'},
+                           'Tab_0':
+                               {'Plot title': 'Tab',
+                                'Row': '1',
+                                'Column': '1',
+                                'Plot type': 'Disabled'},
+                           'Tab_1':
+                               {'Plot title': 'Tab',
+                                'Row': '2',
+                                'Column': '1',
+                                'Plot type': 'Disabled'}}
+        else:
+            if self.entity.params:
+                self.config = json.loads(self.entity.params[self.name].replace('\'', '\"'))
+            else:
+                self.config = json.loads(config.replace('\'', '\"'))
+
+        self.rtp_pref_nb = wx.Notebook(self, 0) #Notebook Panel that can have multiple Tab
+
+        self.main_tab = RtppMainTab(self.rtp_pref_nb, self.config) # main tab for General settings
+        # Creation of the other specific tab
+        other_tabs = self.RtppCreateOtherTab() #list of specific settings tab
+
+        #Adding the pages to the Notebook
+        self.rtp_pref_nb.AddPage(self.main_tab, "General Preference")
+        for tab in range(0, len(other_tabs)):
+            self.rtp_pref_nb.AddPage(other_tabs[tab], other_tabs[tab].title)
+        #Updating the plot title in the Graph display of the General setting tab
+        self.main_tab.Update_Graph_titles()
+        #Updating the position (row and column) of each tab considering the Graph Display
+        self.RowColumnSetUp()
+        #Adding the Notebook to a sizer
+        #self.rtp_pref_nb.Fit()
+        self.sizer = wx.BoxSizer(wx.VERTICAL)
+        self.sizer.Add(self.rtp_pref_nb, 1, wx.ALL | wx.EXPAND | wx.ALIGN_CENTRE, 5)
+
+        #Initialising and Adding The ok, apply and Cancel button to the sizer
+        buttons_sizer = wx.BoxSizer(wx.HORIZONTAL)
+
+        buttons1 = wx.Button(self, label='Ok')
+        buttons1.Bind(wx.EVT_BUTTON, self.OnOk)
+        buttons_sizer.Add(buttons1, 0, wx.ALIGN_LEFT | wx.ALIGN_BOTTOM | wx.RIGHT, 5)
+
+        buttons2 = wx.Button(self, label='Apply')
+        buttons2.Bind(wx.EVT_BUTTON, self.OnApply)
+        buttons_sizer.Add(buttons2, 0, wx.ALIGN_CENTER_HORIZONTAL | wx.ALIGN_BOTTOM | wx.RIGHT, 5)
+
+        buttons3 = wx.Button(self, label='Cancel')
+        buttons3.Bind(wx.EVT_BUTTON, self.OnCancel)
+        buttons_sizer.Add(buttons3, 0, wx.ALIGN_RIGHT | wx.ALIGN_BOTTOM)
+
+        self.sizer.Add(buttons_sizer, 0, wx.ALIGN_RIGHT)
+
+        #Adjusting the mainsizer to show it properly.
+        self.SetSizer(self.sizer)
+        self.Center()
+
+        self.Bind(wx.EVT_CLOSE, self.OnCancel)
+
+        self.rtp_pref_nb.Fit()
+
+    def OnApply(self, evt):
+        if self.entry_type == 'Test':
+            self.entity.params[self.name] = str(self.config)
+        elif self.entry_type == 'Suite':
+            edit_param = EditParam(script.ScriptParamDef(name='rtp_config', qname=self.name,
+                                                         label=' ', default=str(self.config), values=[str(self.config)]))
+            self.entity.edit_params[edit_param.param.qname] = edit_param
+            self.entity.update_params()
+
+    def OnOk(self, evt):
+        if self.entry_type == 'Test':
+            self.entity.params[self.name] = str(self.config)
+        elif self.entry_type == 'Suite':
+            edit_param = EditParam(script.ScriptParamDef(name='rtp_config', qname=self.name,
+                                                         label=' ', default=str(self.config), values=[str(self.config)]))
+            self.entity.edit_params[edit_param.param.qname] = edit_param
+            self.entity.update_params()
+        self.Destroy()
+
+    def OnCancel(self, evt):
+        """
+            Cancel the changes and close the window
+            :return: nothing
+        """
+        self.Destroy()
+
+    def RtppCreateOtherTab(self):
+        """
+            Initialise the specific settings tab, depending on the number of tab needed
+            :return: tabs: list of NoteBook pages (Panel)
+        """
+        tabs = []
+        for tab in range(0, self.main_tab.number_of_other_tab):
+            other_tab = RtppOtherTab(self.rtp_pref_nb, self.config, name='Tab_' + str(tab))
+            tabs.append(other_tab)
+        return tabs
+
+    def RtppUpdateOtherTab(self):
+        """
+            When the number of rows or column is changed in the General setting tab,
+             this function removes or add the corresponding number of tabs.
+
+            :return: nothing
+        """
+        new_number_of_tabs = self.main_tab.number_of_other_tab + 1
+        old_number_of_tabs = self.rtp_pref_nb.GetPageCount()
+        if new_number_of_tabs > old_number_of_tabs:
+            for tab in range(old_number_of_tabs, new_number_of_tabs):
+                new_tab = RtppOtherTab(self.rtp_pref_nb, self.config, name='Tab_' + str(tab - 1))
+                self.rtp_pref_nb.AddPage(new_tab, new_tab.title)
+                new_tab.GraphResize(evt=None)
+            self.RowColumnSetUp()
+        elif new_number_of_tabs < old_number_of_tabs:
+            for i in range(new_number_of_tabs, old_number_of_tabs):
+                self.rtp_pref_nb.RemovePage(new_number_of_tabs)
+
+    def RowColumnSetUp(self):
+        """
+            When the number of rows or column is changed in the General setting tab,
+            this function reset the corresponding position of each tab (row and column).
+
+            :return: nothing
+        """
+        column_lenght = self.main_tab.column_text.GetValue()
+        row = 1
+        column = 1
+        for j in range(1, self.rtp_pref_nb.GetPageCount()):
+            other_tab = self.rtp_pref_nb.GetPage(j)
+            if float(j)/float(column_lenght) <= row:
+                other_tab.column_text.SetLabel(str(column))
+                other_tab.column = str(column)
+                self.config[other_tab.name]['Column'] = str(column)
+                column += 1
+            else:
+                row += 1
+                column = 1
+                other_tab.column_text.SetLabel(str(column))
+                other_tab.column = str(column)
+                self.config[other_tab.name]['Column'] = str(column)
+                column += 1
+
+            other_tab.row_text.SetLabel(str(row))
+            other_tab.row = str(row)
+            self.config[other_tab.name]['Row'] = str(row)
+
+
 class ToolFrame(wx.Frame):
 
     menu_new_items = [(wx.ID_ANY, 'Directory...', '', None, OP_NEW_DIR),
@@ -4109,6 +5803,7 @@ class ToolFrame(wx.Frame):
                        (wx.ID_ANY, 'Move/Rename', '', None, OP_MOVE),
                        (wx.ID_ANY, 'Rescan', '', None, OP_RESCAN),
                        (wx.ID_ANY, '', '', None, None),
+                       #(wx.ID_ANY, 'Real-Time Plotting Preference', '', None, OP_RTP_PREF),
                        (wx.ID_DELETE, 'Delete', '', None, OP_DELETE),
                        (wx.ID_ANY, 'Delete All', '', None, OP_DELETE_ALL),
                        (wx.ID_REMOVE, 'Remove', '', None, OP_REMOVE)]
@@ -4216,6 +5911,7 @@ class ToolFrame(wx.Frame):
         ops[OP_EXIT] = (self.OnExit, None)
         ops[OP_PKG] = (self.OnPackage, None)
         ops[OP_ABOUT] = (self.OnAbout, None)
+        # ops[OP_RTP_PREF] = (self.OnRtpPref, None)
 
         self.entity_tree.update_menu_ops(ops)
         return ops
@@ -4254,7 +5950,7 @@ class ToolFrame(wx.Frame):
                                  "devices and applications.")
 
         aboutInfo = wx.adv.AboutDialogInfo()
-        aboutInfo.SetName("System Validation Platform")
+        aboutInfo.SetName("System Validation Platform with Real-time plotting feature")
         aboutInfo.SetVersion(VERSION)
         aboutInfo.SetDescription(wrapper.fill(description_str))
         #aboutInfo.SetCopyright("(C) 1992-2012")
@@ -4274,6 +5970,10 @@ class ToolFrame(wx.Frame):
 
         dialog.Destroy()
 
+    # def OnRtpPref(self, evt):
+    #     dialog = RtpPrefDialog(self, configFile=None)
+    #     dialog.CenterOnParent()
+    #     dialog.ShowModal()
 
     def OnExit(self, evt):
         self.periodic_timer.Stop()
@@ -4958,7 +6658,7 @@ class RunEntry(object):
             if ext != svp.LOG_EXT:
                 limit = 1000
             f = open(filename)
-            #TODO : need to be handle when it is a excel file
+            #TODO: need to be handle when it is a excel file
             for entry in f:
                 if len(entry) > 27 and entry[4] == '-' and entry[7] == '-' and entry[13] == ':' and entry[16] == ':':
                     info_log.SetDefaultStyle(wx.TextAttr((26, 13, 171)))
@@ -5037,8 +6737,10 @@ class RunDialog(wx.Dialog):
                 self.panel.run_tree.run_context.periodic()
                 if count <= 0:
                     self.panel.run_tree.run_context.terminate()
+                    self.panel.run_tree.run_context.terminate_rtp()
                     break
                 count -= 1
+        self.panel.run_tree.run_context.terminate_rtp()
         self.Destroy()
 
 

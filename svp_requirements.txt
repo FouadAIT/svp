@@ -26,3 +26,5 @@ wxmplot
 wxPython==4.0.7.post2
 XlsxWriter
 natsort
+configobj
+seaborn

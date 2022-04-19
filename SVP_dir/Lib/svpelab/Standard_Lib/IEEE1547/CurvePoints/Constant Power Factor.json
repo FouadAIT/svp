@@ -1,0 +1,6 @@
+{
+    "name": "Constant Power Factor",
+    "measured_values": ["V", "Q", "P", "PF"],
+    "x_values": ["V", "P"],
+    "y_values": {"Q": "CPF"}
+}

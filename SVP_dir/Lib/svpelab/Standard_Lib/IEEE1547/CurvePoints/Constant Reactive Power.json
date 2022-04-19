@@ -1,0 +1,6 @@
+{
+    "name": "Constant Reactive Power",
+    "measured_values": ["V", "Q", "P"],
+    "x_values": ["V"],
+    "y_values": {"Q": "CRP"}
+}

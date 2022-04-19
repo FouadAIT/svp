@@ -1,0 +1,44 @@
+{
+    "name": "Volt-Watt",
+    "measured_values": ["V", "P"],
+    "x_values": ["V"],
+    "y_values": {"P": "VW"},
+    "Category B":{
+        "curve1":{
+            "V": "v_nom",
+            "P": "p_rated",
+            "TR" : 10.0,
+			"VALUES":
+            {
+                "V1" : 1.06,
+                "V2" : 1.10,
+                "P1" : 1.00,
+                "P2" : 0
+            }
+        },
+        "curve2":{
+            "V": "v_nom",
+            "P": "p_rated",
+            "TR" : 60.0,
+			"VALUES":
+			{
+                "V1" : 1.06,
+                "V2" : 1.10,
+                "P1" : 1.00,
+                "P2" : 0
+            }
+        },
+        "curve3":{
+            "V": "v_nom",
+            "P": "p_rated",
+            "TR" : 0.50,
+            "VALUES":
+			{
+                "V1" : 1.09,
+                "V2" : 1.10,
+                "P1" : 1.00,
+                "P2" : 0
+            }
+        }
+    }
+}

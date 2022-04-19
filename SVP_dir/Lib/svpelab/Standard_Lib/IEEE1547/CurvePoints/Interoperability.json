@@ -1,0 +1,6 @@
+{
+    "name": "Interoperability",
+    "measured_values": ["V", "P", "F"],
+    "x_values": ["V"],
+    "y_values": {"P": "IOP"}
+}

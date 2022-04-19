@@ -1,0 +1,15 @@
+<suite globals="True" name="IEEE">
+  <members>
+    <member name="VW_IEEE.ste" />
+    <member name="VRT_IEEE.ste" />
+  </members>
+  <params>
+    <param name="IEEE1547dot1.pp_ena" type="string">Disabled</param>
+    <param name="der.mode" type="string">Disabled</param>
+    <param name="gridsim.mode" type="string">Disabled</param>
+    <param name="gridsim.auto_config" type="string">Disabled</param>
+    <param name="pvsim.mode" type="string">Disabled</param>
+    <param name="das.mode" type="string">Disabled</param>
+    <param name="hil.mode" type="string">Disabled</param>
+  </params>
+</suite>

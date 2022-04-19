@@ -1,0 +1,17 @@
+<suite globals="True" name="VRT_IEEE">
+  <members>
+    <member name="VRT_IEEE_HV_AB.tst" />
+  </members>
+  <params>
+    <param name="das.mode" type="string">DAS Simulation</param>
+    <param name="der.mode" type="string">Disabled</param>
+    <param name="gridsim.mode" type="string">Disabled</param>
+    <param name="gridsim.auto_config" type="string">Disabled</param>
+    <param name="pvsim.mode" type="string">Disabled</param>
+    <param name="das.sim.Sim_mode" type="string">Disabled</param>
+    <param name="hil.mode" type="string">Disabled</param>
+    <param name="das.sim.rtp.rtp_enable" type="string">Enabled</param>
+    <param name="das.sim.rtp.realtime_plotting_edit" type="string">OnRtp</param>
+    <param name="rtp_config" type="string">{'MainTab': {'RTP mode': 'Enabled', 'Standard tested': '1547.1', 'Row': '2', 'Column': '1', 'Number of other tab': '2'}, 'Tab_0': {'Plot title': 'Tab', 'Row': '1', 'Column': '1', 'Plot type': 'Disabled'}, 'Tab_1': {'Plot title': 'Tab', 'Row': '2', 'Column': '1', 'Plot type': 'Disabled'}}</param>
+  </params>
+</suite>

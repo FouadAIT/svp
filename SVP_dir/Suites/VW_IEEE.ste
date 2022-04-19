@@ -1,0 +1,43 @@
+<suite globals="True" name="VW_IEEE">
+  <members>
+    <member name="VW_3_IEEE.tst" />
+    <member name="VW_IMBALANCE_IEEE.tst" />
+  </members>
+  <params>
+    <param name="der.startup_time" type="int">1</param>
+    <param name="das.sim.chan_1_label" type="string">1</param>
+    <param name="das.sim.chan_2_label" type="string">2</param>
+    <param name="das.sim.chan_3_label" type="string">3</param>
+    <param name="der.f_min" type="float">56.0</param>
+    <param name="der.f_nom" type="float">60.0</param>
+    <param name="der.f_max" type="float">66.0</param>
+    <param name="der.v_low" type="float">116.0</param>
+    <param name="der.v_nom" type="float">120.0</param>
+    <param name="der.v_high" type="float">132.0</param>
+    <param name="der.v_in_nom" type="int">400</param>
+    <param name="der.p_min" type="float">1000.0</param>
+    <param name="das.sim.sample_interval" type="int">1000</param>
+    <param name="der.var_rated" type="float">2000.0</param>
+    <param name="der.p_rated" type="float">8000.0</param>
+    <param name="der.s_rated" type="float">10000.0</param>
+    <param name="das.sim.chan_1" type="string">AC</param>
+    <param name="das.sim.chan_2" type="string">AC</param>
+    <param name="das.sim.chan_3" type="string">AC</param>
+    <param name="das.mode" type="string">DAS Simulation</param>
+    <param name="der.mode" type="string">DER Simulation</param>
+    <param name="der.imbalance_ind" type="string">Disabled</param>
+    <param name="der.imbalance_seq" type="string">Disabled</param>
+    <param name="gridsim.auto_config" type="string">Disabled</param>
+    <param name="hil.mode" type="string">Disabled</param>
+    <param name="der.imbalance_avg" type="string">Enabled</param>
+    <param name="das.sim.rtp.rtp_enable" type="string">Enabled</param>
+    <param name="gridsim.mode" type="string">Grid Simulator Simulation</param>
+    <param name="der.abs_ena" type="string">No</param>
+    <param name="der.sink_power" type="string">No</param>
+    <param name="das.sim.rtp.realtime_plotting_edit" type="string">OnRtp</param>
+    <param name="pvsim.mode" type="string">PV Simulator Simulation</param>
+    <param name="das.sim.Sim_mode" type="string">Random</param>
+    <param name="der.phases" type="string">Three phase</param>
+    <param name="rtp_config" type="string">{'MainTab': {'RTP mode': 'Enabled', 'Standard tested': 'Custom', 'Row': '2', 'Column': '1', 'Number of other tab': 2}, 'Tab_0': {'Plot title': 'Timebased', 'Row': '1', 'Column': '1', 'Plot type': 'Time-based', 'Time-based': {'X axis value': 'Time', 'Time display option': 'Show everything', 'Time window': '6', 'Y1 axis specific value': {'AC_VRMS_1': 'True', 'AC_VRMS_2': 'True', 'AC_VRMS_3': 'True', 'AC_IRMS_1': 'False', 'AC_IRMS_2': 'False', 'AC_IRMS_3': 'False', 'AC_P_1': 'False', 'AC_P_2': 'False', 'AC_P_3': 'False', 'AC_S_1': 'False', 'AC_S_2': 'False', 'AC_S_3': 'False', 'AC_Q_1': 'False', 'AC_Q_2': 'False', 'AC_Q_3': 'False', 'AC_PF_1': 'False', 'AC_PF_2': 'False', 'AC_PF_3': 'False', 'AC_FREQ_1': 'False', 'AC_FREQ_2': 'False', 'AC_FREQ_3': 'False'}, 'Y2 axis value': 'Enabled', 'Y2 axis specific value': {'AC_VRMS_1': 'False', 'AC_VRMS_2': 'False', 'AC_VRMS_3': 'False', 'AC_IRMS_1': 'False', 'AC_IRMS_2': 'False', 'AC_IRMS_3': 'False', 'AC_P_1': 'True', 'AC_P_2': 'True', 'AC_P_3': 'True', 'AC_S_1': 'False', 'AC_S_2': 'False', 'AC_S_3': 'False', 'AC_Q_1': 'False', 'AC_Q_2': 'False', 'AC_Q_3': 'False', 'AC_PF_1': 'False', 'AC_PF_2': 'False', 'AC_PF_3': 'False', 'AC_FREQ_1': 'False', 'AC_FREQ_2': 'False', 'AC_FREQ_3': 'False'}, 'X axis title': 'Time', 'Grid': 'True', 'Legend': 'True', 'Y1 axis title': 'Volt', 'Y2 axis title': 'P'}}, 'Tab_1': {'Plot title': 'Tab', 'Row': '2', 'Column': '1', 'Plot type': 'XY', 'XY': {'X axis value': 'V', 'Y1 axis specific value': {'AC_VRMS_1': 'False', 'AC_VRMS_2': 'False', 'AC_VRMS_3': 'False', 'AC_IRMS_1': 'False', 'AC_IRMS_2': 'False', 'AC_IRMS_3': 'False', 'AC_P_1': 'True', 'AC_P_2': 'True', 'AC_P_3': 'True', 'AC_S_1': 'False', 'AC_S_2': 'False', 'AC_S_3': 'False', 'AC_Q_1': 'False', 'AC_Q_2': 'False', 'AC_Q_3': 'False', 'AC_PF_1': 'False', 'AC_PF_2': 'False', 'AC_PF_3': 'False', 'AC_FREQ_1': 'False', 'AC_FREQ_2': 'False', 'AC_FREQ_3': 'False'}, 'Y2 axis value': 'Disabled', 'Y2 axis specific value': {'AC_VRMS_1': 'False', 'AC_VRMS_2': 'False', 'AC_VRMS_3': 'False', 'AC_IRMS_1': 'False', 'AC_IRMS_2': 'False', 'AC_IRMS_3': 'False', 'AC_P_1': 'True', 'AC_P_2': 'False', 'AC_P_3': 'False', 'AC_S_1': 'False', 'AC_S_2': 'False', 'AC_S_3': 'False', 'AC_Q_1': 'False', 'AC_Q_2': 'False', 'AC_Q_3': 'False', 'AC_PF_1': 'False', 'AC_PF_2': 'False', 'AC_PF_3': 'False', 'AC_FREQ_1': 'False', 'AC_FREQ_2': 'False', 'AC_FREQ_3': 'False'}, 'Remove duplicates': 'True', 'filters': [], 'Grid': 'True', 'Legend': 'True', 'X axis title': 'Votlage', 'Y1 axis title': 'P', 'Y2 axis title': 'y2 axis'}}}</param>
+  </params>
+</suite>
