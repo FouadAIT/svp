@@ -46,8 +46,8 @@ CAT_3 = 'CAT_3'
 class VoltageRideThrough(IEEE1547dot1Layer):
 
     #def __init__(self, ts, function='Volt-Watt', standard='IEEE1547dot1', imbalance_angle_fix=None):
-    def __init__(self, ts, function='Volt-Watt', imbalance_angle_fix=None):
-        super().__init__(ts, function, imbalance_angle_fix=imbalance_angle_fix)
+    def __init__(self, ts, function='Volt-Watt'):
+        super().__init__(ts, function)
 
         #self.ts = ts
         self.name = 'Voltage Ride-Through'

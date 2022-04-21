@@ -40,6 +40,7 @@ from svpelab import der
 from svpelab import hil
 from svpelab import result as rslt
 from svpelab.Standard_Lib.UL1741.GridSupportFunction.volt_watt_layer import VoltWatt
+
 from svpelab.Standard_Lib.UL1741 import UL1741SB_layer
 
 from datetime import datetime, timedelta
@@ -49,31 +50,45 @@ import numpy as np
 import collections
 import cmath
 
-#VW = 'VW'
-#V = 'V'
-#F = 'F'
-#P = 'P'
-#Q = 'Q'
-UL1741_FILENAME = 'UL1741_summary.csv'
+FW = 'FW'
+CPF = 'CPF'
+VW = 'VW'
+VV = 'VV'
+WV = 'WV'
+CRP = 'CRP'
+PRI = 'PRI'
+LFRT = "LFRT"
+HFRT = "HFRT"
+LV = 'LV'
+HV = 'HV'
+CAT_2 = 'CAT_2'
+CAT_3 = 'CAT_3'
 
+UL_FILENAME = 'UL1741-SB_summary.csv'
 
-def volt_watt_mode(vw_curves, vw_response_time, pwr_lvls, imbalance_test=False):
-
+def test_run():
     result = script.RESULT_FAIL
-    result_summary = None
-    dataset_filename = None
-    ActiveFunction = None
-    Imbalance_test = None
-    imbalance_resp = [1]
-    imbalance_fix = None
+
     try:
+        result = script.RESULT_FAIL
+        result_summary = None
+        dataset_filename = None
+        ActiveFunction = None
+        Imbalance_test = None
+        imbalance_resp = [1]
+        imbalance_fix = None
+
+        """
+        A separate module has been create for the 1547.1 Standard
+        """
+        if ts.param_value('UL1741.gsf') == "VW":
+            ActiveFunction = VoltWatt(ts)
+        else:
+            ts.log_error('VW Not selected')
+            raise
 
 
-        if imbalance_test:
-            imbalance_fix = ts.param_value('vw.imbalance_fix')
-            ts.log_debug(f'imbalance fix VW ={imbalance_fix}')
-        ActiveFunction = VoltWatt(ts, imbalance_angle_fix=imbalance_fix)
-        ActiveFunction.log_debug("Library configured for %s" % ActiveFunction.get_script_name())
+        ActiveFunction.log_debug("1547.1 Library configured for %s" % ActiveFunction.get_script_name())
 
         '''
         a) Connect the EUT according to the instructions and specifications provided by the manufacturer.
@@ -82,7 +97,9 @@ def volt_watt_mode(vw_curves, vw_response_time, pwr_lvls, imbalance_test=False):
         ActiveFunction.chil_init()
 
         # Start the HIL simulation
-        ActiveFunction.chil_start_simulation()
+        # TODO : Add a condition to know when you are in PHIL, CHIL or SIL mode.
+        #        Depending of the mode the .chil_start_simulation() need to be earlier or later.
+        #ActiveFunction.chil_start_simulation()
 
         # Initialize GRIDSIM
         ActiveFunction.gridsim_init()
@@ -93,29 +110,14 @@ def volt_watt_mode(vw_curves, vw_response_time, pwr_lvls, imbalance_test=False):
         # Initialize the pv simulator
         ActiveFunction.pv_init()
 
-        if imbalance_test:
-            imbalance_fix = ts.param_value('vw.imbalance_fix')
-            imbalance_resp = ActiveFunction.imbalance_resp()
-            ts.log(f'Test has been set to imbalanced mode')
-            ts.log(f'Imbalance angle has been set to {imbalance_fix}')
-
-
         '''
         c) Set all AC test source parameters to the nominal operating voltage and frequency.
         '''
-        ActiveFunction.set_grid_nom()
+        ActiveFunction.set_grid_to_nominal()
 
         # open result summary file
         ActiveFunction.create_result_summary()
-        #result_summary = open(ts.result_file_path(IEEE_FILENAME), 'a+')
-        #ts.result_file(IEEE_FILENAME)
-        #Create empty file for UL1741 result summary to keep this order. The newer file will overwrite this
-        """
-        if ActiveFunction is not None:
-            ul1741_result_summary = open(ts.result_file_path(UL1741_FILENAME), 'a+')
-            ts.result_file(UL1741_FILENAME)
-            ul1741_result_summary.close()
-        """
+
 
         # DAS soft channels
         # initialize data acquisition system
@@ -125,54 +127,44 @@ def volt_watt_mode(vw_curves, vw_response_time, pwr_lvls, imbalance_test=False):
         v) Test may be repeated for EUT's that can also absorb power using the P' values in the characteristic
         definition.
         '''
-        # TODO: add P' tests (Like CPF -> for absorb_power in absorb_powers:)
 
         '''
         u) Repeat steps d) through u) for characteristics 2 and 3.
         '''
-        for imb_resp in imbalance_resp:
-            if imbalance_test:
-                ActiveFunction.set_imbalance_config(imbalance_angle_fix=imbalance_fix, imbalance_resp=imb_resp)
-            for vw_curve in vw_curves:
-                ts.log('Starting test with characteristic curve %s' % (vw_curve))
-                ActiveFunction.set_curve(vw_curve)
-                ActiveFunction.set_time_settings(tr=vw_response_time[vw_curve], number_tr=4)
-                ActiveFunction.create_dict_steps()
-                '''
-                t) Repeat steps d) through t) at EUT power set at 20% and 66% of rated power.
-                '''
-                for power in pwr_lvls:
-                    # Configure the data acquisition system
-                    ts.log('Starting data capture for power = %s' % power)
-                    
-                    ActiveFunction.set_pwr_setting(pwr=power)
-                    #Setting grid to vnom before test
-                    ActiveFunction.set_grid_nom()
+        test_procedure_loops = ActiveFunction.create_configuration_variables()
+        ts.log(f'test_procedure_loops =  {test_procedure_loops}')
 
-                    '''
-                    d) Adjust the EUT's available active power to Prated. For an EUT with an input voltage range, set the input
-                    voltage to Vin_nom. The EUT may limit active power throughout the test to meet reactive power requirements.
-                    For an EUT with an input voltage range.
-                    '''
-                    ActiveFunction.set_dc_pwr(irr=1100, pwr=power)
-                    
-                    #Send settings to EUT
-                    ActiveFunction.vw_config_to_eut()
+        for loop in test_procedure_loops:
+            ActiveFunction.set_loop_test_procedure_configuration(loop)
+            ts.log(f'Starting loop {loop}')
+            ts.log(f'Test procedure curve (if any) {ActiveFunction.get_curve()}')
+            ts.log(f'Test procedure power level (if any) {ActiveFunction.get_pwr()}')
+            ActiveFunction.create_dict_steps()
+            '''
+            t) Repeat steps d) through t) at EUT power set at 20% and 66% of rated power.
+            '''
+            ActiveFunction.set_test_bench_equipment()
 
-                    '''
-                    Refer to P1547 Library and IEEE1547.1 standard for steps
-                    '''
-                    #Initiate recording
-                    ActiveFunction.start_recording()
-                    #Start test procedure
-                    ActiveFunction.execute_test_procedure_steps()
+            '''
+            d) Adjust the EUT's available active power to Prated. For an EUT with an input voltage range, set the input
+            voltage to Vin_nom. The EUT may limit active power throughout the test to meet reactive power requirements.
+            For an EUT with an input voltage range.
+            '''
 
-                    # create result workbook
-                    ts.log('Sampling complete')
-                    ActiveFunction.stop_recording()
-                    ActiveFunction.save_recording()
 
-        #Initiate post processing for UL1741SB moving average
+            '''
+            Refer to P1547 Library and UL1741.1 standard for steps
+            '''
+            # Initiate recording
+            ActiveFunction.start_recording()
+            # Start test procedure
+            ActiveFunction.execute_test_procedure_steps()
+
+            # create result workbook
+            ts.log('Sampling complete')
+            ActiveFunction.stop_recording()
+            ActiveFunction.save_recording()
+
         if ActiveFunction is not None:
             ActiveFunction.execute_postprocess()
 
@@ -180,86 +172,10 @@ def volt_watt_mode(vw_curves, vw_response_time, pwr_lvls, imbalance_test=False):
 
 
     except Exception as e:
-        #if dataset_filename is not None:
-        #    dataset_filename = dataset_filename + ".csv"
-
-        # if ActiveFunction is not None:
-        #     ActiveFunction.stop_recording()
-        #     ActiveFunction.save_recording()
         reason = str(e)
         ts.log_error(reason)
         ts.log_error('Test script exception: %s' % traceback.format_exc())
         raise
-
-    finally:
-        if ActiveFunction is not None:
-            ActiveFunction.close_all_equipments()
-        #if result_summary is not None:
-        #    result_summary.close()
-
-    return result
-
-
-def test_run():
-
-    result = script.RESULT_FAIL
-
-    try:
-        """
-        Configuration
-        """
-
-        # Initialize VW EUT specified parameters variables
-        mode = ts.param_value('vw.mode')
-        """
-        Test Configuration
-        """
-        # list of active tests
-        vw_curves = []
-        imbalance_test = False
-        vw_response_time = [0, 0, 0, 0]
-        if mode == 'Imbalanced grid':
-            """
-            imbalance_resp = []
-            if ts.param_value('eut.imbalance_resp') == 'EUT response to the individual phase voltages':
-                imbalance_resp.append('INDIVIDUAL_PHASES_VOLTAGES')
-            elif ts.param_value('eut.imbalance_resp') == 'EUT response to the average of the three-phase effective (RMS)':
-                imbalance_resp.append('AVG_3PH_RMS')
-            else:  # 'EUT response to the positive sequence of voltages'
-                imbalance_resp.append('POSITIVE_SEQUENCE_VOLTAGES')
-            """
-            imbalance_test= True
-            vw_curves.append(1)
-            vw_response_time[1] = float(ts.param_value('vw.test_1_tr'))
-
-        else:
-            if ts.param_value('vw.test_1') == 'Enabled':
-                vw_curves.append(1)
-                vw_response_time[1] = float(ts.param_value('vw.test_1_tr'))
-            if ts.param_value('vw.test_2') == 'Enabled':
-                vw_curves.append(2)
-                vw_response_time[2] = float(ts.param_value('vw.test_2_tr'))
-            if ts.param_value('vw.test_3') == 'Enabled':
-                vw_curves.append(3)
-                vw_response_time[3] = float(ts.param_value('vw.test_3_tr'))
-
-        # List of power level for tests
-        irr = ts.param_value('vw.power_lvl')
-        if irr == '20%':
-            pwr_lvls = [0.20]
-        elif irr == '66%':
-            pwr_lvls = [0.66]
-        elif irr == '100%':
-            pwr_lvls = [1.00]
-        elif irr == 'All':
-            pwr_lvls = [1.00, 0.66, 0.20]
-        else:
-            pwr_lvls = [1.00]
-        
-        result = volt_watt_mode(vw_curves=vw_curves, vw_response_time=vw_response_time, pwr_lvls=pwr_lvls, imbalance_test=imbalance_test)
-
-
-        return result
 
     except script.ScriptFail as e:
         reason = str(e)
@@ -271,6 +187,8 @@ def test_run():
         excelfile = ts.config_name() + '.xlsx'
         rslt.result_workbook(excelfile, ts.results_dir(), ts.result_dir())
         ts.result_file(excelfile)
+        if ActiveFunction is not None:
+            ActiveFunction.close_all_equipments()
 
 
     return result
@@ -302,10 +220,13 @@ def run(test_script):
     sys.exit(rc)
 
 info = script.ScriptInfo(name=os.path.basename(__file__), run=run, version='2.0.0')
-
-# VW test parameters
-info.param_group('vw', label='Test Parameters')
-info.param('vw.mode', label='Volt-Watt mode', default='Normal', values=['Normal', 'Imbalanced grid'])
+"""
+Volt-Watt Parameters
+"""
+info.param_group('UL1741', label='Grid Support Function (GSF) following UL1741-SB')
+info.param('UL1741.gsf', label='Which GSF to test ?', default='VW', values=['VW'])
+info.param_group('vw', label='Volt-Watt Test Parameters',active='UL1741.gsf', active_value="VW")
+info.param('vw.mode', label='Volt-Watt mode', default='Normal', values=['Normal', 'Imbalanced grid'],active='UL1741.gsf', active_value="VW")
 info.param('vw.test_1', label='Characteristic 1 curve', default='Enabled', values=['Disabled', 'Enabled'],
            active='vw.mode', active_value=['Normal', 'Imbalanced grid'])
 info.param('vw.test_1_tr', label='Response time (s) for curve 1', default=10.0,

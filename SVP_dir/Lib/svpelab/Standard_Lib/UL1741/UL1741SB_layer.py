@@ -58,9 +58,9 @@ def params(info, group_name=None, label='UL1741SB'):
 
 
 class UL1741SBLayer(IEEE1547dot1Layer):
-    def __init__(self, ts, function=None, imbalance_angle_fix=None):
+    def __init__(self, ts, function=None):
         # Import UL1741 standard curve points
-        super().__init__(ts=ts, function=function, imbalance_angle_fix=imbalance_angle_fix)
+        super().__init__(ts=ts, function=function)
         self.standard = UL1741SB_DEFAULT_ID
         ts.log_debug(f'FUNCTION1={function} in STANDARD={self.standard}')
         self.pp_ena = self.ts.param_value('UL1741SB.pp_ena')

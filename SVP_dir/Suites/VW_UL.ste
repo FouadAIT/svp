@@ -1,5 +1,6 @@
 <suite globals="True" name="VW_UL">
   <members>
+    <member name="VW_UL_1.tst" />
     <member name="VW_UL_3.tst" />
   </members>
   <params>

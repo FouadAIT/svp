@@ -25,15 +25,14 @@
     <param name="das.sim.chan_3" type="string">AC</param>
     <param name="das.mode" type="string">DAS Simulation</param>
     <param name="der.mode" type="string">DER Simulation</param>
-    <param name="UL1741SB.pp_ena" type="string">Disabled</param>
     <param name="der.imbalance_ind" type="string">Disabled</param>
     <param name="der.imbalance_seq" type="string">Disabled</param>
+    <param name="das.sim.rtp.rtp_enable" type="string">Disabled</param>
     <param name="hil.mode" type="string">Disabled</param>
+    <param name="IEEE1547dot1.pp_ena" type="string">Enabled</param>
     <param name="der.imbalance_avg" type="string">Enabled</param>
     <param name="gridsim.auto_config" type="string">Enabled</param>
-    <param name="das.sim.rtp.rtp_enable" type="string">Enabled</param>
     <param name="gridsim.mode" type="string">Grid Simulator Simulation</param>
-    <param name="das.sim.rtp.realtime_plotting_edit" type="string">Need to configure the lowest level of Suite</param>
     <param name="der.abs_ena" type="string">No</param>
     <param name="der.sink_power" type="string">No</param>
     <param name="pvsim.mode" type="string">PV Simulator Simulation</param>

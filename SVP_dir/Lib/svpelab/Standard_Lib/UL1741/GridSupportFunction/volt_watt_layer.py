@@ -35,10 +35,9 @@ from svpelab.Standard_Lib.UL1741.UL1741SB_layer import UL1741SBLayer
 from svpelab.Standard_Lib.IEEE1547.GridSupportFunction.volt_watt_layer import VoltWatt
 
 class VoltWatt(UL1741SBLayer,VoltWatt):
-    def __init__(self, ts, function='Volt-Watt', imbalance_angle_fix=None):
-        super().__init__(ts, function, imbalance_angle_fix=imbalance_angle_fix)
+    def __init__(self, ts, function='Volt-Watt'):
+        super().__init__(ts, function)
         self.name = 'Volt-Watt'
-
 
     def create_dict_steps(self):
         """

@@ -54,7 +54,7 @@ def params(info, group_name=None, label='IEEE1547.1_LAYER'):
 
 
 class IEEE1547dot1Layer(InitializationLayer, ImbalanceComponent):
-    def __init__(self, ts, function=None, imbalance_angle_fix=None):
+    def __init__(self, ts, function=None):
         self.standard = 'IEEE1547dot1'
         #EquipmentsManager.__init__(ts)
         super(IEEE1547dot1Layer, self).__init__(ts=ts, standard=self.standard, function=function)
