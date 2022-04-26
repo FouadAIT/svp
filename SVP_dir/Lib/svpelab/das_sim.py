@@ -38,7 +38,7 @@ from . import dataset
 from . import das
 from . import RealTimePlotting_Connection as RTP
 
-MINIMUM_SAMPLE_PERIOD = 50
+MINIMUM_SAMPLE_PERIOD = 1
 
 sim_info = {
     'name': os.path.splitext(os.path.basename(__file__))[0],

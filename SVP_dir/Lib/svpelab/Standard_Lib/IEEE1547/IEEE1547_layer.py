@@ -148,7 +148,7 @@ class IEEE1547dot1Layer(InitializationLayer, ImbalanceComponent):
     Create functions
     '''
     def create_result_summary(self):
-        self.result_summary = open(self.ts.result_file_path(self.result_summary_filename), 'a+')
+        self.result_summary = open(self.ts.result_file_path(self.result_summary_filename), 'a+') # Creates the result summary file
         self.ts.result_file(self.result_summary_filename)
 
     def create_logger(self):

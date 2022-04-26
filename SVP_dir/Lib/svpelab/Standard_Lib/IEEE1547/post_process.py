@@ -61,7 +61,7 @@ class IEEE1547postprocessing():
         self.ts = ts
         self.standard = 'IEEE1547dot1'
         self.result_summary_filename = 'IEEE1547-1_summary.csv'
-        self.eut = der.der_init(self.ts)  
+        self.eut = der.der_init(self.ts)
         if self.eut is None:
             DERError(f'EUT is None')
         self.MRA = {
@@ -100,33 +100,26 @@ class IEEE1547postprocessing():
         #Meas_value as dict of meas_value
         self.pass_fail_dict = {}
         self.datapoints_dict = datapoints_dict
-        self.y_value_dict = datapoints_dict['y_values']#meas_value_dict
-
-        #TODO to be removed or adjusted because of redundance
-        if len(datapoints_dict['x_values'])==1:
-            self.x_value_dict = datapoints_dict['x_values'][0]
+        #self.y_value_dict = datapoints_dict['y_values']#meas_value_dict
 
         if len(datapoints_dict['x_values'])==1:
-            self.x = datapoints_dict['x_values'][0]
+            self.x_datapoints = datapoints_dict['x_values'][0]
         else:
             pass
-
+        self.y_datapoints = []
         if isinstance(datapoints_dict['y_values'], dict):
             #self.ts.log_debug(f'DICT={datapoints_dict["y_values"]}')
             if len(datapoints_dict['y_values'])==1:
                 for key, value in datapoints_dict['y_values'].items():
-                    self.y = key
+                    self.y_datapoints.append(key)
         else:
-            self.y = datapoints_dict['y_values'][0]
+            self.y_datapoints.append(datapoints_dict['y_values'][0])
 
 
         self.curve = None
         self.cat = 'Category B'
 
         self.time_accuracy = True
-
-        self.time_accuracy = True
-
         #Recalculate Target Min Max for result_summary
         self.min_max_calculation = min_max_calculation
 
@@ -163,12 +156,12 @@ class IEEE1547postprocessing():
 
 
 
-        for meas_value in self.x_value_dict:
+        for meas_value in self.x_datapoints:
 
             #if self.validate_cols_df(self.rs_df, f'{meas_value}_MEAS'):
             self.pass_fail_dict[f'{meas_value}_MEAS'] = []
 
-        for meas_value in self.y_value_dict:
+        for meas_value in self.y_datapoints:
             #self.ts.log_debug(f'meas_value={meas_value}')
             self.pass_fail_dict[f'{meas_value}_MEAS'] = []
             if self.min_max_calculation:
@@ -240,54 +233,54 @@ class IEEE1547postprocessing():
         """This function will serve as the main core function where all the processing will
         be done on the dataframe
         """
-        tr1df = {}
-        tr4df = {}
-        for index, row in self.rs_df.iterrows():
-            self.current_step = row['STEP']
+        tr1df = {} # Dataframe related to the dynamic time response value
+        tr4df = {} # Dataframe related to the steady-state time response value
+        for index, row in self.rs_df.iterrows(): #  For loop parsing though the result summary dataframe (self.rs_df)
+            self.current_step = row['STEP'] # Represents the current step analysed (ex.: STEP G)
             # TODO : Throw a value error when tr1df or tr1df is empty. You cannot process if missing these dictionnaries
 
-            tr1df[row['FILENAME']] = self.x_tr_first(df=self.files_df[row['FILENAME']], step=row['STEP'], x=1)
-            tr4df[row['FILENAME']] = self.x_tr_first(df=self.files_df[row['FILENAME']], step=row['STEP'], x=4)
+            tr1df[row['FILENAME']] = self.x_tr_first(df=self.files_df[row['FILENAME']], step=row['STEP'], x=1) # Search for the first value at the dynamic time response (event TR_1) at the current step (ex: first STEP G_TR_1 of EVENT column of the results csv files)
+            tr4df[row['FILENAME']] = self.x_tr_first(df=self.files_df[row['FILENAME']], step=row['STEP'], x=4) # Same as above, but at the steady-state time response (event TR_4) (ex: first STEP G_TR_4)
 
-            self.curve = re.search('(?<=_CRV)[0-9]+', row['FILENAME']).group()
-            self.ts.log_debug(f"Filename : {row['FILENAME']} use curve {self.curve}")
-            for meas_value in self.x_value_dict:
-                if tr1df[row['FILENAME']].empty:
-                    self.pass_fail_dict[f'{meas_value}_MEAS'].append(np.nan)
-                self.pass_fail_dict[f'{meas_value}_MEAS'].append(tr4df[row['FILENAME']][f'{meas_value}_MEAS'].iloc[0])
-                self.y_targ_min, self.y_targ_max, self.y_targ = self.eval_min_max(tr4df[row['FILENAME']][f'{meas_value}_MEAS'].iloc[0])
+            self.curve = re.search('(?<=_CRV)[0-9]+', row['FILENAME']).group() # find the curve number applied with a regex function
+            self.ts.log_debug(f"Filename : {row['FILENAME']} use curve {self.curve}") # Logging the file name of the csv file and the curve number of the GSF (Grid Support Function)
+            for meas_x_value in self.x_datapoints: # For loop on the measured x values (ex: 'V' for VW)
+                for meas_y_value in self.y_datapoints: # For loop on the measured y values (ex: 'P' for VW)
+                    #If there was no TR1 in the dataframe output
+                    if tr4df[row['FILENAME']].empty or tr1df[row['FILENAME']].empty: # If the value at steady-state or dynamic time-response doesn't exist, replace the values by nan values
+                        self.pass_fail_dict[f'{meas_x_value}_MEAS'].append(np.nan)
+                        self.pass_fail_dict[f'{meas_y_value}_MEAS'].append(np.nan)
+                        if self.min_max_calculation:
+                            self.pass_fail_dict[f'{meas_y_value}_TARGET'].append(np.nan)
+                            self.pass_fail_dict[f'{meas_y_value}_TARGET_MIN'].append(np.nan)
+                            self.pass_fail_dict[f'{meas_y_value}_TARGET_MAX'].append(np.nan)
+                            self.pass_fail_dict[f'{meas_y_value}_TR_WITHIN_BOUNDS_BY_TR=1_PASSFAIL'].append(np.nan)
+                            self.pass_fail_dict[f'{meas_y_value}_TR_WITHIN_BOUNDS_BY_TR=4_PASSFAIL'].append(np.nan)
+                        if self.time_accuracy:
+                            self.pass_fail_dict[f'{meas_y_value}_TR_90PCT_BY_TR=1_PASSFAIL'].append(np.nan)
 
-            for meas_value in self.y_value_dict:
-                #If there was no TR1 in the dataframe output
-                if tr1df[row['FILENAME']].empty:
-                    self.pass_fail_dict[f'{meas_value}_MEAS'].append(np.nan)
-                    if self.min_max_calculation:
-                        self.pass_fail_dict[f'{meas_value}_TARGET'].append(np.nan)
-                        self.pass_fail_dict[f'{meas_value}_TARGET_MIN'].append(np.nan)
-                        self.pass_fail_dict[f'{meas_value}_TARGET_MAX'].append(np.nan)
-                        self.pass_fail_dict[f'{meas_value}_TR_WITHIN_BOUNDS_BY_TR=1_PASSFAIL'].append(np.nan)
-                        self.pass_fail_dict[f'{meas_value}_TR_WITHIN_BOUNDS_BY_TR=4_PASSFAIL'].append(np.nan)
-                    if self.time_accuracy:
-                        self.pass_fail_dict[f'{meas_value}_TR_90PCT_BY_TR=1_PASSFAIL'].append(np.nan)
+                    else: # If the value at steady-state or dynamic time-response exist, evaluate the different criterias related to the y values
+                        self.x = meas_x_value # set the current x value attribute
+                        self.y = meas_y_value # set the current y value attribute
+                        self.pass_fail_dict[f'{meas_x_value}_MEAS'].append(tr4df[row['FILENAME']][f'{meas_x_value}_MEAS'].iloc[0])  # add the x measured value at steady-state time response to the pass/fail dict
+                        self.pass_fail_dict[f'{meas_y_value}_MEAS'].append(tr4df[row['FILENAME']][f'{meas_y_value}_MEAS'].iloc[0]) # add the y measured value at steady-state time response to the pass/fail dict
+                        self.tr = self.datapoints_dict['Category B'][f'curve{self.curve}']['TR'] # find the Time-response written in the GSF json file (See CurvePoints folder)
+                        self.ts.log_debug(f"self.pass_fail_dict = {self.pass_fail_dict}") # log pass/fail dict in the svp run window
+                        self.y_targ_min, self.y_targ_max, self.y_targ = self.eval_min_max(tr4df[row['FILENAME']][f'{meas_x_value}_MEAS'].iloc[0])  # Determine the target values depending on the GSF curve and current x measured value (Look into eval_min_max and interpolate_value of _criterias_evaluation.py for details)
+                        self.pass_fail_dict[f'{meas_y_value}_TR_WITHIN_BOUNDS_BY_TR=1_PASSFAIL'].append(self.verify_passfail(df=tr1df[row['FILENAME']], key=meas_y_value)) # (min/max criteria) Verifies if the measured y value at dynamic time response is between the minimum and maximum target value
+                        self.pass_fail_dict[f'{meas_y_value}_TR_WITHIN_BOUNDS_BY_TR=4_PASSFAIL'].append(self.verify_passfail(df=tr4df[row['FILENAME']], key=meas_y_value)) # (min/max criteria) Verifies if the measured y value at steady-state time response is between the minimum and maximum target value
+                        # TODO : Changer le nom pour le standard open_loop_resp_criteria
+                        tr_90PCT_by_tr1_pf = self.time_accuracy_eval(self.files_df[row['FILENAME']], tr1df[row['FILENAME']]['TIME'], key=meas_y_value) # (Dynamic criteria) Verifies if the open loop time response criteria of IEEE1547 standard pass or fail for the y measured value at dynamic time response
+                        if tr_90PCT_by_tr1_pf is None : # Verifies if the dynamic pass/fail was done correctly
+                            raise ValueError(f"Something is wrong with the 90pc of TR=1 passfail criteria ...  Passfail result is empty")
+                        if self.min_max_calculation: # If min/max criteria evaluated, then add the related values to the pass/fail dict
+                            self.pass_fail_dict[f'{meas_y_value}_TARGET'].append(self.y_targ )
+                            self.pass_fail_dict[f'{meas_y_value}_TARGET_MIN'].append(self.y_targ_min)
+                            self.pass_fail_dict[f'{meas_y_value}_TARGET_MAX'].append(self.y_targ_max)
+                        if self.time_accuracy: # If dynamic criteria evaluated, then add the related values to the pass/fail dict
+                            self.pass_fail_dict[f'{meas_y_value}_TR_90PCT_BY_TR=1_PASSFAIL'].append(tr_90PCT_by_tr1_pf)
 
-                else:
-                    self.pass_fail_dict[f'{meas_value}_MEAS'].append(tr4df[row['FILENAME']][f'{meas_value}_MEAS'].iloc[0])
-                    self.tr = self.datapoints_dict['Category B'][f'curve{self.curve}']['TR']
-                    self.ts.log_debug(f"self.pass_fail_dict = {self.pass_fail_dict}")
-                    self.pass_fail_dict[f'{meas_value}_TR_WITHIN_BOUNDS_BY_TR=1_PASSFAIL'].append(self.verify_passfail(df=tr1df[row['FILENAME']], key=meas_value))
-                    self.pass_fail_dict[f'{meas_value}_TR_WITHIN_BOUNDS_BY_TR=4_PASSFAIL'].append(self.verify_passfail(df=tr4df[row['FILENAME']], key=meas_value))
-                    # TODO : Changer le nom pour le standard open_loop_resp_criteria
-                    tr_90PCT_by_tr1_pf = self.time_accuracy_eval(self.files_df[row['FILENAME']], tr1df[row['FILENAME']]['TIME'], key=meas_value)
-                    if tr_90PCT_by_tr1_pf is None :
-                        raise ValueError(f"Something is wrong with the 90pc of TR=1 passfail criteria ...  Passfail result is empty")
-                    if self.min_max_calculation:
-                        self.pass_fail_dict[f'{meas_value}_TARGET'].append(self.y_targ )
-                        self.pass_fail_dict[f'{meas_value}_TARGET_MIN'].append(self.y_targ_min)
-                        self.pass_fail_dict[f'{meas_value}_TARGET_MAX'].append(self.y_targ_max)
-                    if self.time_accuracy:
-                        self.pass_fail_dict[f'{meas_value}_TR_90PCT_BY_TR=1_PASSFAIL'].append(tr_90PCT_by_tr1_pf)
-
-
+        # Rewrite the result summary dataframe filled with None values with the data in the pass/fail dict
         for key, list_value in self.pass_fail_dict.items():
             if 'PASSFAIL' in key or 'LIST' in key:
                 serie = pd.Series(self.pass_fail_dict[key], index=self.rs_df.index, dtype='string')
@@ -296,6 +289,7 @@ class IEEE1547postprocessing():
                 self.ts.log_debug(f"self.pass_fail_dict[key] {self.pass_fail_dict[key]}")
                 serie = pd.Series(self.pass_fail_dict[key], index=self.rs_df.index, dtype='float64')
                 self.rs_df[key] = serie
+        # When the result summary dataframe is done being rewritten it is reconverted in a csv file overwriting the previous one (see the end of the _init_ of the PostProcess class)
 
 
 
