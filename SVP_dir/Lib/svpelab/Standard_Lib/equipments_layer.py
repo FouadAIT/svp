@@ -101,33 +101,33 @@ class EquipmentsLevel(object):
             sim_time = self.ts.equipments["hil"].get_time()
         return sim_time
 
-    def gridsim_init(self):
-        """Initialize GRIDSIM function
+    def grid_init(self):
+        """Initialize Grid simulator function
         """
         self.v_nom = self.ts.param_value('der.v_nom')
 
-        self.ts.log_debug(15 * "*" + "GRIDSIM initialization" + 15 * "*")
+        self.ts.log_debug(15 * "*" + "grid simulator initialization" + 15 * "*")
         grid = gridsim.gridsim_init(self.ts, support_interfaces={'hil': self.ts.equipments["hil"]})  # Turn on AC so the EUT can be initialized
-        self.ts.equipments["gridsim"] = grid
+        self.ts.equipments["grid"] = grid
 
-        if self.ts.equipments["gridsim"]  is not None:
-            self.ts.equipments["gridsim"].voltage(self.v_nom)
+        if self.ts.equipments["grid"]  is not None:
+            self.ts.equipments["grid"].voltage(self.v_nom)
             if self.ts.equipments["hil"]  is not None:  # If using HIL, give the grid simulator the hil object
-                self.ts.equipments["gridsim"].config()
+                self.ts.equipments["grid"].config()
 
 
     def set_grid_to_nominal(self):
         """set_grid_nom Function to set the grid at the nominal voltage
         """
         # TODO : Add the frequency and phase angle as well
-        if self.ts.equipments["gridsim"] is not None:
-            self.ts.equipments["gridsim"].voltage(self.v_nom)
+        if self.ts.equipments["grid"] is not None:
+            self.ts.equipments["grid"].voltage(self.v_nom)
 
 
     def pv_init(self):
-        """pv_init PV initalization with the rated power level
+        """pv_init PV simulator initalization with the rated power level
         """
-        self.ts.log_debug(15 * "*" + "PVSIM initialization" + 15 * "*")
+        self.ts.log_debug(15 * "*" + "PV simulator initialization" + 15 * "*")
         pv = pvsim.pvsim_init(self.ts, support_interfaces={'hil': self.ts.equipments["hil"]})
         self.ts.equipments["pv"] = pv
 

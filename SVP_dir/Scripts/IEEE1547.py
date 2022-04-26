@@ -101,8 +101,8 @@ def test_run():
         #        Depending of the mode the .chil_start_simulation() need to be earlier or later.
         #ActiveFunction.chil_start_simulation()
 
-        # Initialize GRIDSIM
-        ActiveFunction.gridsim_init()
+        # Initialize grid simulator
+        ActiveFunction.grid_init()
 
         # Initialize the equipment under test (EUT)
         ActiveFunction.eut_init()
@@ -133,6 +133,9 @@ def test_run():
         '''
         test_procedure_loops = ActiveFunction.create_configuration_variables()
         ts.log(f'test_procedure_loops =  {test_procedure_loops}')
+
+        #If using SIL start simulation here
+        ActiveFunction.chil_start_simulation()
 
         for loop in test_procedure_loops:
             ActiveFunction.set_loop_test_procedure_configuration(loop)

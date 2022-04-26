@@ -13,15 +13,15 @@
     <param name="der.f_min" type="float">56.0</param>
     <param name="der.f_nom" type="float">60.0</param>
     <param name="gridsim.opal.freq" type="float">60.0</param>
-    <param name="der.f_max" type="float">66.0</param>
+    <param name="der.f_max" type="float">65.5</param>
     <param name="gridsim.opal.f_max" type="float">70.0</param>
     <param name="der.v_low" type="float">116.0</param>
     <param name="der.v_nom" type="float">120.0</param>
     <param name="gridsim.opal.v_nom" type="float">120.0</param>
     <param name="der.v_high" type="float">132.0</param>
-    <param name="gridsim.opal.v_max" type="float">132.0</param>
     <param name="gridsim.opal.vout_scale" type="string">169.7,169.7,169.7</param>
-    <param name="das.opal.sample_interval" type="int">350</param>
+    <param name="gridsim.opal.v_max" type="float">200.0</param>
+    <param name="das.opal.sample_interval" type="int">250</param>
     <param name="der.v_in_nom" type="int">400</param>
     <param name="der.p_min" type="float">1000.0</param>
     <param name="pvsim.Opal.irr" type="float">1100.0</param>
@@ -29,8 +29,8 @@
     <param name="der.s_rated" type="float">5000.0</param>
     <param name="der.p_rated" type="float">5000.0</param>
     <param name="gridsim.opal.cin_scale" type="string">-3.32567,-3.33400,-3.327</param>
-    <param name="hil.opal.project_dir" type="string">C:\OPAL-RT\WorkspaceFOREVERYONE\Eugene_testing</param>
-    <param name="das.opal.wfm_dir" type="string">C:\OPAL-RT\WorkspaceFOREVERYONE\Eugene_testing\models\IEEE_1547_Simulated_Test_Bench\ieee_1547_simulated_test_bench_sm_source\OpREDHAWKtarget</param>
+    <param name="hil.opal.project_dir" type="string">C:\OPAL-RT\WorkspaceFOREVERYONE\IEEE_1547_Simulated_Test_Bench</param>
+    <param name="das.opal.wfm_dir" type="string">C:\OPAL-RT\WorkspaceFOREVERYONE\IEEE_1547_Simulated_Test_Bench\models\IEEE_1547_Simulated_Test_Bench\ieee_1547_simulated_test_bench_sm_source\OpREDHAWKtarget</param>
     <param name="das.opal.data_name" type="string">Data.mat</param>
     <param name="UL1741SB.pp_ena" type="string">Disabled</param>
     <param name="der.imbalance_ind" type="string">Disabled</param>
